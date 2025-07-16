@@ -6,17 +6,22 @@ keywords = ["Android, Androguard, Security"]
 description = "APK Parser"
 requires-python = ">=3.10"
 dynamic = ["version"]
-authors = [{ name = "Anthony Desnos", email = "anthony@42.bzh" }]
+authors = [{ name = "anthony", email = "ping@42.bzh" }]
 
 classifiers = [
     "Development Status :: 4 - Beta",
-    "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-    "Operating System :: OS Independent",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Topic :: Utilities",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
+    "Topic :: Software Development",
+    "Topic :: Utilities",
 ]
 dependencies = []
 
@@ -24,10 +29,7 @@ dependencies = []
 apkparser = "apkparser.main:app"
 
 [build-system]
-requires = [
-    "setuptools>=68",
-    "setuptools_scm>=8.0",
-]
+requires = ["rich>=14.0.0", "setuptools>=68", "setuptools_scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 
