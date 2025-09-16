@@ -3,31 +3,53 @@ import sys
 import io
 
 from .helper.logging import LOGGER
-from . import APK
+from . import APK, OPTION_AXML, OPTION_SIGNATURE
+
 
 def initParser():
     parser = argparse.ArgumentParser(
         prog='apkparser',
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        description='APK Parser')
+        description='APK Parser',
+    )
 
-    parser.add_argument('-i', '--input', type=str,
-                        help='input APK file')
+    parser.add_argument('-i', '--input', type=str, help='input APK file')
 
-    parser.add_argument('-v', '--verbose', action='store_true',
-                        help='verbose')
+    parser.add_argument('-v', '--verbose', action='store_true', help='verbose')
     args = parser.parse_args()
     return args
 
 
 arguments = initParser()
 
+
 def app():
     if arguments.input:
         with open(arguments.input, 'rb') as fd:
-            a = APK(io.BytesIO(fd.read()))
-            print(a.get_files())
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            LOGGER.info(a.get_files())
+            LOGGER.info(a.get_android_manifest().package)
+            LOGGER.info(a.get_android_manifest().permissions)
+            LOGGER.info(a.get_android_manifest().uses_permissions)
+            LOGGER.info(a.get_files_crc32())
+            LOGGER.info(a.get_files_types())
+            LOGGER.info(f"Application name = {a.get_app_name()}")
+            LOGGER.info(f"Main Activity = {a.get_main_activity()}")
+            LOGGER.info(f"Activities = {a.get_activities()}")
+            LOGGER.info(f"Activities alias = {a.get_activity_aliases()}")
+            LOGGER.info(f"Services = {a.get_services()}")
+            LOGGER.info(f"Receivers = {a.get_receivers()}")
+            LOGGER.info(f"Providers = {a.get_providers()}")
+
+            LOGGER.info(f"is signed = {a.signature.is_signed()}")
+            LOGGER.info(f"v1 = {a.signature.is_signed_v1()}")
+            LOGGER.info(f"v2 = {a.signature.is_signed_v2()}")
+            LOGGER.info(f"v3 = {a.signature.is_signed_v3()}")
+            LOGGER.info(a.signature.get_certificates())
+            LOGGER.info(a.signature.get_public_keys_der_v3())
+
     return 0
+
 
 if __name__ == '__main__':
     app()

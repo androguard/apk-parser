@@ -10,17 +10,34 @@ class EndOfCentralDirectoryRecord:
     """
     A class to provide details about the end of central directory record.
     """
-    def __init__(self, signature, number_of_this_disk, disk_where_central_directory_starts,
-                 number_of_central_directory_records_on_this_disk,
-                 total_number_of_central_directory_records, size_of_central_directory,
-                 offset_of_start_of_central_directory, comment_length, comment):
+
+    def __init__(
+        self,
+        signature,
+        number_of_this_disk,
+        disk_where_central_directory_starts,
+        number_of_central_directory_records_on_this_disk,
+        total_number_of_central_directory_records,
+        size_of_central_directory,
+        offset_of_start_of_central_directory,
+        comment_length,
+        comment,
+    ):
         self.signature = signature
         self.number_of_this_disk = number_of_this_disk
-        self.disk_where_central_directory_starts = disk_where_central_directory_starts
-        self.number_of_central_directory_records_on_this_disk = number_of_central_directory_records_on_this_disk
-        self.total_number_of_central_directory_records = total_number_of_central_directory_records
+        self.disk_where_central_directory_starts = (
+            disk_where_central_directory_starts
+        )
+        self.number_of_central_directory_records_on_this_disk = (
+            number_of_central_directory_records_on_this_disk
+        )
+        self.total_number_of_central_directory_records = (
+            total_number_of_central_directory_records
+        )
         self.size_of_central_directory = size_of_central_directory
-        self.offset_of_start_of_central_directory = offset_of_start_of_central_directory
+        self.offset_of_start_of_central_directory = (
+            offset_of_start_of_central_directory
+        )
         self.comment_length = comment_length
         self.comment = comment
 
@@ -47,7 +64,9 @@ class EndOfCentralDirectoryRecord:
             chunk = apk_file.read(chunk_size)
             if not chunk:
                 break
-            signature_offset = chunk.rfind(b'\x50\x4b\x05\x06')  # EOCD signature
+            signature_offset = chunk.rfind(
+                b'\x50\x4b\x05\x06'
+            )  # EOCD signature
             if signature_offset != -1:
                 eo_central_directory_offset = position + signature_offset
                 break  # Found EOCD signature
@@ -55,18 +74,30 @@ class EndOfCentralDirectoryRecord:
             offset += chunk_size - 4
 
         if signature_offset == -1:
-            raise ValueError("End of central directory record (EOCD) signature not found")
+            raise ValueError(
+                "End of central directory record (EOCD) signature not found"
+            )
         apk_file.seek(eo_central_directory_offset)
 
         signature = apk_file.read(4)
         number_of_this_disk = struct.unpack('<H', apk_file.read(2))[0]
-        disk_where_central_directory_starts = struct.unpack('<H', apk_file.read(2))[0]
-        number_of_central_directory_records_on_this_disk = struct.unpack('<H', apk_file.read(2))[0]
-        total_number_of_central_directory_records = struct.unpack('<H', apk_file.read(2))[0]
+        disk_where_central_directory_starts = struct.unpack(
+            '<H', apk_file.read(2)
+        )[0]
+        number_of_central_directory_records_on_this_disk = struct.unpack(
+            '<H', apk_file.read(2)
+        )[0]
+        total_number_of_central_directory_records = struct.unpack(
+            '<H', apk_file.read(2)
+        )[0]
         size_of_central_directory = struct.unpack('<I', apk_file.read(4))[0]
-        offset_of_start_of_central_directory = struct.unpack('<I', apk_file.read(4))[0]
+        offset_of_start_of_central_directory = struct.unpack(
+            '<I', apk_file.read(4)
+        )[0]
         comment_length = struct.unpack('<H', apk_file.read(2))[0]
-        comment = struct.unpack(f'<{comment_length}s', apk_file.read(comment_length))[0].decode('utf-8', 'ignore')
+        comment = struct.unpack(
+            f'<{comment_length}s', apk_file.read(comment_length)
+        )[0].decode('utf-8', 'ignore')
         return cls(
             signature,
             number_of_this_disk,
@@ -76,7 +107,7 @@ class EndOfCentralDirectoryRecord:
             size_of_central_directory,
             offset_of_start_of_central_directory,
             comment_length,
-            comment
+            comment,
         )
 
     def to_dict(self):
@@ -95,7 +126,7 @@ class EndOfCentralDirectoryRecord:
             "size_of_central_directory": self.size_of_central_directory,
             "offset_of_start_of_central_directory": self.offset_of_start_of_central_directory,
             "comment_length": self.comment_length,
-            "comment": self.comment
+            "comment": self.comment,
         }
 
     @classmethod
@@ -115,12 +146,30 @@ class CentralDirectoryEntry:
     """
     A class representing each entry in the central directory.
     """
-    def __init__(self, version_made_by, version_needed_to_extract, general_purpose_bit_flag,
-                 compression_method, file_last_modification_time, file_last_modification_date,
-                 crc32_of_uncompressed_data, compressed_size, uncompressed_size, file_name_length,
-                 extra_field_length, file_comment_length, disk_number_where_file_starts,
-                 internal_file_attributes, external_file_attributes, relative_offset_of_local_file_header,
-                 filename, extra_field, file_comment, offset_in_central_directory):
+
+    def __init__(
+        self,
+        version_made_by,
+        version_needed_to_extract,
+        general_purpose_bit_flag,
+        compression_method,
+        file_last_modification_time,
+        file_last_modification_date,
+        crc32_of_uncompressed_data,
+        compressed_size,
+        uncompressed_size,
+        file_name_length,
+        extra_field_length,
+        file_comment_length,
+        disk_number_where_file_starts,
+        internal_file_attributes,
+        external_file_attributes,
+        relative_offset_of_local_file_header,
+        filename,
+        extra_field,
+        file_comment,
+        offset_in_central_directory,
+    ):
         self.version_made_by = version_made_by
         self.version_needed_to_extract = version_needed_to_extract
         self.general_purpose_bit_flag = general_purpose_bit_flag
@@ -136,7 +185,9 @@ class CentralDirectoryEntry:
         self.disk_number_where_file_starts = disk_number_where_file_starts
         self.internal_file_attributes = internal_file_attributes
         self.external_file_attributes = external_file_attributes
-        self.relative_offset_of_local_file_header = relative_offset_of_local_file_header
+        self.relative_offset_of_local_file_header = (
+            relative_offset_of_local_file_header
+        )
         self.filename = filename
         self.extra_field = extra_field
         self.file_comment = file_comment
@@ -169,7 +220,7 @@ class CentralDirectoryEntry:
             "filename": self.filename,
             "extra_field": self.extra_field,
             "file_comment": self.file_comment,
-            "offset_in_central_directory": self.offset_in_central_directory
+            "offset_in_central_directory": self.offset_in_central_directory,
         }
 
     @classmethod
@@ -190,6 +241,7 @@ class CentralDirectory:
     The CentralDirectory containing all the CentralDirectoryEntry entries discovered.
     The entries are listed as a dictionary where the filename is the key.
     """
+
     def __init__(self, entries):
         self.entries = entries
 
@@ -211,7 +263,9 @@ class CentralDirectory:
             eocd = EndOfCentralDirectoryRecord.parse(apk_file)
         apk_file.seek(eocd.offset_of_start_of_central_directory)
         if apk_file.tell() != eocd.offset_of_start_of_central_directory:
-            raise ValueError(f"Failed to find the offset for the central directory within the file!")
+            raise ValueError(
+                f"Failed to find the offset for the central directory within the file!"
+            )
 
         central_directory_entries = {}
         while True:
@@ -220,35 +274,69 @@ class CentralDirectory:
             if signature != b'\x50\x4b\x01\x02':
                 break  # Reached the end of the central directory
             version_made_by = struct.unpack('<H', apk_file.read(2))[0]
-            version_needed_to_extract = struct.unpack('<H', apk_file.read(2))[0]
+            version_needed_to_extract = struct.unpack('<H', apk_file.read(2))[
+                0
+            ]
             general_purpose_bit_flag = struct.unpack('<H', apk_file.read(2))[0]
             compression_method = struct.unpack('<H', apk_file.read(2))[0]
-            file_last_modification_time = struct.unpack('<H', apk_file.read(2))[0]
-            file_last_modification_date = struct.unpack('<H', apk_file.read(2))[0]
-            crc32_of_uncompressed_data = struct.unpack('<I', apk_file.read(4))[0]
+            file_last_modification_time = struct.unpack(
+                '<H', apk_file.read(2)
+            )[0]
+            file_last_modification_date = struct.unpack(
+                '<H', apk_file.read(2)
+            )[0]
+            crc32_of_uncompressed_data = struct.unpack('<I', apk_file.read(4))[
+                0
+            ]
             compressed_size = struct.unpack('<I', apk_file.read(4))[0]
             uncompressed_size = struct.unpack('<I', apk_file.read(4))[0]
             file_name_length = struct.unpack('<H', apk_file.read(2))[0]
             extra_field_length = struct.unpack('<H', apk_file.read(2))[0]
             file_comment_length = struct.unpack('<H', apk_file.read(2))[0]
-            disk_number_where_file_starts = struct.unpack('<H', apk_file.read(2))[0]
+            disk_number_where_file_starts = struct.unpack(
+                '<H', apk_file.read(2)
+            )[0]
             internal_file_attributes = struct.unpack('<H', apk_file.read(2))[0]
             external_file_attributes = struct.unpack('<I', apk_file.read(4))[0]
-            relative_offset_of_local_file_header = struct.unpack('<I', apk_file.read(4))[0]
-            filename = struct.unpack(f'<{file_name_length}s', apk_file.read(file_name_length))[0].decode('utf-8', 'ignore')
-            extra_field = struct.unpack(f'<{extra_field_length}s', apk_file.read(extra_field_length))[0].decode('utf-8', 'ignore')
-            file_comment = struct.unpack(f'<{file_comment_length}s', apk_file.read(file_comment_length))[0].decode('utf-8', 'ignore')
+            relative_offset_of_local_file_header = struct.unpack(
+                '<I', apk_file.read(4)
+            )[0]
+            filename = struct.unpack(
+                f'<{file_name_length}s', apk_file.read(file_name_length)
+            )[0].decode('utf-8', 'ignore')
+            extra_field = struct.unpack(
+                f'<{extra_field_length}s', apk_file.read(extra_field_length)
+            )[0].decode('utf-8', 'ignore')
+            file_comment = struct.unpack(
+                f'<{file_comment_length}s', apk_file.read(file_comment_length)
+            )[0].decode('utf-8', 'ignore')
             offset_in_central_directory = c_offset
 
             central_directory_entry = CentralDirectoryEntry(
-                version_made_by, version_needed_to_extract, general_purpose_bit_flag, compression_method,
-                file_last_modification_time, file_last_modification_date, crc32_of_uncompressed_data,
-                compressed_size, uncompressed_size, file_name_length, extra_field_length, file_comment_length,
-                disk_number_where_file_starts, internal_file_attributes, external_file_attributes,
-                relative_offset_of_local_file_header, filename, extra_field, file_comment,
-                offset_in_central_directory
+                version_made_by,
+                version_needed_to_extract,
+                general_purpose_bit_flag,
+                compression_method,
+                file_last_modification_time,
+                file_last_modification_date,
+                crc32_of_uncompressed_data,
+                compressed_size,
+                uncompressed_size,
+                file_name_length,
+                extra_field_length,
+                file_comment_length,
+                disk_number_where_file_starts,
+                internal_file_attributes,
+                external_file_attributes,
+                relative_offset_of_local_file_header,
+                filename,
+                extra_field,
+                file_comment,
+                offset_in_central_directory,
             )
-            central_directory_entries[central_directory_entry.filename] = central_directory_entry
+            central_directory_entries[central_directory_entry.filename] = (
+                central_directory_entry
+            )
 
         return cls(central_directory_entries)
 
@@ -259,7 +347,10 @@ class CentralDirectory:
         :return: returns the dictionary
         :rtype: dict
         """
-        return {filename: entry.to_dict() for filename, entry in self.entries.items()}
+        return {
+            filename: entry.to_dict()
+            for filename, entry in self.entries.items()
+        }
 
     @classmethod
     def from_dict(cls, entry_dict):
@@ -282,10 +373,22 @@ class LocalHeaderRecord:
     """
     The local header for each entry discovered.
     """
-    def __init__(self, version_needed_to_extract, general_purpose_bit_flag,
-                 compression_method, file_last_modification_time, file_last_modification_date,
-                 crc32_of_uncompressed_data, compressed_size, uncompressed_size, file_name_length,
-                 extra_field_length, filename, extra_field):
+
+    def __init__(
+        self,
+        version_needed_to_extract,
+        general_purpose_bit_flag,
+        compression_method,
+        file_last_modification_time,
+        file_last_modification_date,
+        crc32_of_uncompressed_data,
+        compressed_size,
+        uncompressed_size,
+        file_name_length,
+        extra_field_length,
+        filename,
+        extra_field,
+    ):
 
         self.version_needed_to_extract = version_needed_to_extract
         self.general_purpose_bit_flag = general_purpose_bit_flag
@@ -319,27 +422,49 @@ class LocalHeaderRecord:
             print(f"Does not seem to be the start of a local header!")
             return None
         else:
-            version_needed_to_extract = struct.unpack('<H', apk_file.read(2))[0]
+            version_needed_to_extract = struct.unpack('<H', apk_file.read(2))[
+                0
+            ]
             general_purpose_bit_flag = struct.unpack('<H', apk_file.read(2))[0]
             compression_method = struct.unpack('<H', apk_file.read(2))[0]
-            file_last_modification_time = struct.unpack('<H', apk_file.read(2))[0]
-            file_last_modification_date = struct.unpack('<H', apk_file.read(2))[0]
-            crc32_of_uncompressed_data = struct.unpack('<I', apk_file.read(4))[0]
+            file_last_modification_time = struct.unpack(
+                '<H', apk_file.read(2)
+            )[0]
+            file_last_modification_date = struct.unpack(
+                '<H', apk_file.read(2)
+            )[0]
+            crc32_of_uncompressed_data = struct.unpack('<I', apk_file.read(4))[
+                0
+            ]
             compressed_size = struct.unpack('<I', apk_file.read(4))[0]
             uncompressed_size = struct.unpack('<I', apk_file.read(4))[0]
             file_name_length = struct.unpack('<H', apk_file.read(2))[0]
             extra_field_length = struct.unpack('<H', apk_file.read(2))[0]
             try:
-                filename = struct.unpack(f'<{file_name_length}s', apk_file.read(file_name_length))[0].decode('utf-8', 'ignore')
-                extra_field = struct.unpack(f'<{extra_field_length}s', apk_file.read(extra_field_length))[0].decode('utf-8', 'ignore')
+                filename = struct.unpack(
+                    f'<{file_name_length}s', apk_file.read(file_name_length)
+                )[0].decode('utf-8', 'ignore')
+                extra_field = struct.unpack(
+                    f'<{extra_field_length}s',
+                    apk_file.read(extra_field_length),
+                )[0].decode('utf-8', 'ignore')
             except:
                 filename = entry_of_interest.filename
                 extra_field = entry_of_interest.extra_field
         return cls(
-            version_needed_to_extract, general_purpose_bit_flag, compression_method,
-            file_last_modification_time, file_last_modification_date, crc32_of_uncompressed_data,
-            compressed_size, uncompressed_size, file_name_length, extra_field_length,
-            filename, extra_field)
+            version_needed_to_extract,
+            general_purpose_bit_flag,
+            compression_method,
+            file_last_modification_time,
+            file_last_modification_date,
+            crc32_of_uncompressed_data,
+            compressed_size,
+            uncompressed_size,
+            file_name_length,
+            extra_field_length,
+            filename,
+            extra_field,
+        )
 
     def to_dict(self):
         """
@@ -360,7 +485,7 @@ class LocalHeaderRecord:
             "file_name_length": self.file_name_length,
             "extra_field_length": self.extra_field_length,
             "filename": self.filename,
-            "extra_field": self.extra_field
+            "extra_field": self.extra_field,
         }
 
     @classmethod
@@ -380,8 +505,14 @@ class ZipEntry:
     """
     Is the actual APK represented as a composition of the previous classes, which are: the EndOfCentralDirectoryRecord, the CentralDirectory and a dictionary of values of LocalHeaderRecord.
     """
-    def __init__(self, zip_bytes, eocd: EndOfCentralDirectoryRecord, central_directory: CentralDirectory,
-                 local_headers: Dict[str, LocalHeaderRecord]):
+
+    def __init__(
+        self,
+        zip_bytes,
+        eocd: EndOfCentralDirectoryRecord,
+        central_directory: CentralDirectory,
+        local_headers: Dict[str, LocalHeaderRecord],
+    ):
         self.zip = zip_bytes
         self.eocd = eocd
         self.central_directory = central_directory
@@ -408,13 +539,20 @@ class ZipEntry:
         central_directory = CentralDirectory.parse(apk_file, eocd)
         local_headers = {}
         for entry in central_directory.entries:
-            local_header_entry = LocalHeaderRecord.parse(apk_file, central_directory.entries[entry])
+            local_header_entry = LocalHeaderRecord.parse(
+                apk_file, central_directory.entries[entry]
+            )
             local_headers[local_header_entry.filename] = local_header_entry
         return cls(apk_file, eocd, central_directory, local_headers)
 
     @classmethod
-    def parse_single(cls, apk_file, filename, eocd: EndOfCentralDirectoryRecord = None,
-                     central_directory: CentralDirectory = None):
+    def parse_single(
+        cls,
+        apk_file,
+        filename,
+        eocd: EndOfCentralDirectoryRecord = None,
+        central_directory: CentralDirectory = None,
+    ):
         """
         Similar to parse, but instead of parsing the entire APK, it only targets the specified file.
 
@@ -432,7 +570,11 @@ class ZipEntry:
         if not eocd or not central_directory:
             eocd = EndOfCentralDirectoryRecord.parse(apk_file)
             central_directory = CentralDirectory.parse(apk_file, eocd)
-        local_header = {filename: LocalHeaderRecord.parse(apk_file, central_directory.entries[filename])}
+        local_header = {
+            filename: LocalHeaderRecord.parse(
+                apk_file, central_directory.entries[filename]
+            )
+        }
         return cls(apk_file, eocd, central_directory, local_header)
 
     def to_dict(self):
@@ -445,7 +587,10 @@ class ZipEntry:
         return {
             "end_of_central_directory": self.eocd.to_dict(),
             "central_directory": self.central_directory.to_dict(),
-            "local_headers": {filename: entry.to_dict() for filename, entry in self.local_headers.items()}
+            "local_headers": {
+                filename: entry.to_dict()
+                for filename, entry in self.local_headers.items()
+            },
         }
 
     def get_central_directory_entry_dict(self, filename):
@@ -460,7 +605,9 @@ class ZipEntry:
         if filename in self.central_directory.entries:
             return self.central_directory.entries[filename].to_dict()
         else:
-            raise KeyError(f"Key: {filename} was not found within the central directory entries!")
+            raise KeyError(
+                f"Key: {filename} was not found within the central directory entries!"
+            )
 
     def get_local_header_dict(self, filename):
         """
@@ -474,7 +621,9 @@ class ZipEntry:
         if filename in self.local_headers:
             return self.local_headers[filename].to_dict()
         else:
-            raise KeyError(f"Key: {filename} was not found within the local headers list!")
+            raise KeyError(
+                f"Key: {filename} was not found within the local headers list!"
+            )
 
     def read(self, name):
         """
@@ -487,8 +636,11 @@ class ZipEntry:
         :return: returns the raw bytes of the filename that was extracted
         :rtype: bytes
         """
-        return extract_file_based_on_header_info(self.zip, self.get_local_header_dict(name),
-                                                           self.get_central_directory_entry_dict(name))[0]
+        return extract_file_based_on_header_info(
+            self.zip,
+            self.get_local_header_dict(name),
+            self.get_central_directory_entry_dict(name),
+        )[0]
 
     def infolist(self) -> Dict[str, CentralDirectoryEntry]:
         """

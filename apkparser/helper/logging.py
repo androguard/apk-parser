@@ -1,5 +1,4 @@
-"""Logging
-"""
+"""Logging"""
 
 from logging import basicConfig, getLogger
 

@@ -1,67 +1,64 @@
 import io
 import re
 import hashlib
-from typing import Any, Iterator, List, Tuple, Union
+from typing import Iterator
+from xmlrpc.client import boolean
+from zlib import crc32
+import magic
 
-from .helper.logging import LOGGER
+from apkparser.helper.logging import LOGGER
+from apkparser.zip import headers
+from apkparser.signature import APKSignature
+from apkparser.utils import is_android_raw
 
-from .zip import headers
+from axml.axml import AXMLPrinter
+from axml.arsc import ARSCParser, ARSCResTableConfig
 
 NS_ANDROID_URI = 'http://schemas.android.com/apk/res/android'
 NS_ANDROID = '{{{}}}'.format(NS_ANDROID_URI)  # Namespace as used by etree
 
-# Constants in ZipFile
-PK_END_OF_CENTRAL_DIR = b"\x50\x4b\x05\x06"
-PK_CENTRAL_DIR = b"\x50\x4b\x01\x02"
-
-# Constants in the APK Signature Block
-APK_SIG_MAGIC = b"APK Sig Block 42"
-APK_SIG_KEY_V2_SIGNATURE = 0x7109871A
-APK_SIG_KEY_V3_SIGNATURE = 0xF05368C0
-APK_SIG_ATTR_V2_STRIPPING_PROTECTION = 0xBEEFF00D
-
-APK_SIG_ALGO_IDS = {
-    0x0101: "RSASSA-PSS with SHA2-256 digest, SHA2-256 MGF1, 32 bytes of salt, trailer: 0xbc",
-    0x0102: "RSASSA-PSS with SHA2-512 digest, SHA2-512 MGF1, 64 bytes of salt, trailer: 0xbc",
-    0x0103: "RSASSA-PKCS1-v1_5 with SHA2-256 digest.",  # This is for build systems which require deterministic signatures.
-    0x0104: "RSASSA-PKCS1-v1_5 with SHA2-512 digest.",  # This is for build systems which require deterministic signatures.
-    0x0201: "ECDSA with SHA2-256 digest",
-    0x0202: "ECDSA with SHA2-512 digest",
-    0x0301: "DSA with SHA2-256 digest",
-}
+APK_FILENAME_MANIFEST = "AndroidManifest.xml"
 
 class Error(Exception):
     """Base class for exceptions in this module."""
     pass
 
+
 class FileNotPresent(Error):
     pass
 
 
-class BrokenAPKError(Error):
-    pass
+OPTION_AXML = "AXML"
+OPTION_SIGNATURE = "SIGNATURE"
+
+def namespace(name: str) -> str:
+    """
+    return the name including the Android namespace URI
+    """
+    return NS_ANDROID + name
 
 class APK(object):
     def __init__(
         self,
         raw: io.BytesIO,
+        options: dict[str, bool] = {},
     ):
+        self._raw = raw
+
+        self.valid_apk: boolean = False
+        self.axml: AXMLPrinter|None = None
+        self.signature: APKSignature|None = None
+
         self.xml = {}
-        self.axml = {}
         self.arsc = {}
 
         self.package = ""
         self.androidversion = {}
+
         self.permissions = []
         self.uses_permissions = []
         self.declared_permissions = {}
-        self.valid_apk = False
-
-        self._is_signed_v2 = None
-        self._is_signed_v3 = None
-        self._v2_blocks = {}
-        self._v2_signing_data = None
-        self._v3_signing_data = None
+        
 
         self._files = {}
         self.files_crc32 = {}
@@ -70,8 +67,18 @@ class APK(object):
         # Set the filename to something sane
         self.filename = "raw_apk_sha256:{}".format(self._sha256)
 
-        raw.seek(0)
-        self.zip = headers.ZipEntry.parse(raw, True)
+        self._raw.seek(0)
+        self.zip: headers.ZipEntry = headers.ZipEntry.parse(self._raw, True)
+
+        # Parsing non mandatory structures
+        self._parse_fields(options)
+
+    def _parse_fields(self, options: dict[str, bool]):
+        if options.get(OPTION_AXML):
+            self.axml = AXMLPrinter(self.zip.read(APK_FILENAME_MANIFEST))
+
+        if options.get(OPTION_SIGNATURE):
+            self.signature = APKSignature(self._raw, self.zip, self.axml)
 
     def get_files(self) -> list[str]:
         """
@@ -94,6 +101,59 @@ class APK(object):
             return self.zip.read(filename)
         except KeyError:
             raise FileNotPresent(filename)
+
+    def _get_file_magic_name(self, buffer: bytes) -> str:
+        """
+        Return the filetype guessed for a buffer
+        :param buffer: bytes
+
+        :returns: guessed filetype, or "Unknown" if not resolved
+        """
+        try:
+            # 1024 byte are usually enough to test the magic
+            ftype = magic.from_buffer(buffer[:1024])
+        except magic.MagicException as e:
+            LOGGER.exception("Error getting the magic type: %s", e)
+            return default
+
+        if not ftype:
+            return default
+        else:
+            return self._patch_magic(buffer, ftype)
+
+    def _patch_magic(self, buffer, orig):
+        """
+        Overwrite some probably wrong detections by mime libraries
+
+        :param buffer: bytes of the file to detect
+        :param orig: guess by mime libary
+        :returns: corrected guess
+        """
+        if (
+            ("Zip" in orig)
+            or ('(JAR)' in orig)
+            and is_android_raw(buffer) == 'APK'
+        ):
+            return "Android application package file"
+
+        return orig
+    
+    def get_files_types(self) -> dict[str, str]:
+        """
+        Return the files inside the APK with their associated types (by using [python-magic](https://pypi.org/project/python-magic/))
+
+        At the same time, the CRC32 are calculated for the files.
+
+        :returns: the files inside the APK with their associated types
+        """
+        if self._files == {}:
+            # Generate File Types / CRC List
+            for i in self.get_files():
+                buffer = self._get_crc32(i)
+                self._files[i] = self._get_file_magic_name(buffer)
+
+        return self._files
+
 
     def get_dex(self) -> bytes:
         """
@@ -149,7 +209,7 @@ class APK(object):
             > 1
         )
 
-    def _get_crc32(self, filename):
+    def _get_crc32(self, filename: str):
         """
         Calculates and compares the CRC32 and returns the raw buffer.
 
@@ -165,7 +225,7 @@ class APK(object):
                 self.files_crc32[filename]
                 != self.zip.infolist()[filename].crc32_of_uncompressed_data
             ):
-                logger.error(
+                LOGGER.error(
                     "File '{}' has different CRC32 after unpacking! "
                     "Declared: {:08x}, Calculated: {:08x}".format(
                         filename,
@@ -197,3 +257,221 @@ class APK(object):
         """
         for k in self.get_files():
             yield k, self.get_files_types()[k], self.get_files_crc32()[k]
+
+    def get_android_manifest(self) -> AXMLPrinter | None:
+        """
+        Return the parsed xml object which corresponds to the `AndroidManifest.xml` file
+
+        :returns: the parsed xml object
+        """
+        return self.axml
+
+    def get_android_resources(self) -> ARSCParser|None:
+        """
+        Return the [ARSCParser][androguard.core.axml.ARSCParser] object which corresponds to the `resources.arsc` file
+
+        :returns: the `ARSCParser` object
+        """
+        try:
+            return self.arsc["resources.arsc"]
+        except KeyError:
+            if "resources.arsc" not in self.zip.namelist():
+                # There is a rare case, that no resource file is supplied.
+                # Maybe it was added manually, thus we check here
+                return None
+            self.arsc["resources.arsc"] = ARSCParser(
+                self.zip.read("resources.arsc")
+            )
+            return self.arsc["resources.arsc"]
+        
+    def get_app_name(self, locale=None) -> str:
+        """
+        Return the appname of the APK
+        This name is read from the `AndroidManifest.xml`
+        using the application `android:label`.
+        If no label exists, the `android:label` of the main activity is used.
+
+        If there is also no main activity label, an empty string is returned.
+
+        :returns: the appname of the APK
+        """
+
+        app_name = self.axml.get_attribute_value('application', 'label')
+        if app_name is None:
+            activities = self.get_main_activities()
+            main_activity_name = None
+            if len(activities) > 0:
+                main_activity_name = activities.pop()
+
+            # FIXME: would need to use _format_value inside get_attribute_value for each returned name!
+            # For example, as the activity name might be foobar.foo.bar but inside the activity it is only .bar
+            app_name = self.get_attribute_value(
+                'activity', 'label', name=main_activity_name
+            )
+
+        if app_name is None:
+            # No App name set
+            # TODO return packagename instead?
+            LOGGER.warning(
+                "It looks like that no app name is set for the main activity!"
+            )
+            return ""
+
+        if app_name.startswith("@"):
+            res_parser = self.get_android_resources()
+            if not res_parser:
+                # TODO: What should be the correct return value here?
+                return app_name
+
+            res_id, package = res_parser.parse_id(app_name)
+
+            # If the package name is the same as the APK package,
+            # we should be able to resolve the ID.
+            if package and package != self.get_package():
+                if package == 'android':
+                    # TODO: we can not resolve this, as we lack framework-res.apk
+                    # one exception would be when parsing framework-res.apk directly.
+                    LOGGER.warning(
+                        "Resource ID with android package name encountered! "
+                        "Will not resolve, framework-res.apk would be required."
+                    )
+                    return app_name
+                else:
+                    # TODO should look this up, might be in the resources
+                    LOGGER.warning(
+                        "Resource ID with Package name '{}' encountered! Will not resolve".format(
+                            package
+                        )
+                    )
+                    return app_name
+
+            try:
+                config = (
+                    ARSCResTableConfig(None, locale=locale)
+                    if locale
+                    else ARSCResTableConfig.default_config()
+                )
+                app_name = res_parser.get_resolved_res_configs(res_id, config)[
+                    0
+                ][1]
+            except Exception as e:
+                LOGGER.warning("Exception selecting app name: %s" % e)
+        return app_name
+
+    def get_main_activities(self) -> set[str]:
+        """
+        Return names of the main activities
+
+        These values are read from the `AndroidManifest.xml`
+
+        :returns: names of the main activities
+        """
+        x = set()
+        y = set()
+
+        decoded_axml = self.axml.get_xml_obj()
+
+        activities_and_aliases = decoded_axml.findall(
+            ".//activity"
+        ) + decoded_axml.findall(".//activity-alias")
+
+        for item in activities_and_aliases:
+            # Some applications have more than one MAIN activity.
+            # For example: paid and free content
+            activityEnabled = item.get(namespace("enabled"))
+            if activityEnabled == "false":
+                continue
+
+            for sitem in item.findall(".//action"):
+                val = sitem.get(namespace("name"))
+                if val == "android.intent.action.MAIN":
+                    activity = item.get(namespace("name")) or item.get("name")
+                    if activity is not None:
+                        x.add(activity)
+                    else:
+                        LOGGER.warning('Main activity without name')
+
+            for sitem in item.findall(".//category"):
+                val = sitem.get(namespace("name"))
+                if val == "android.intent.category.LAUNCHER":
+                    activity = item.get(namespace("name")) or item.get("name")
+                    if activity is not None:
+                        y.add(activity)
+                    else:
+                        LOGGER.warning('Launcher activity without name')
+
+        return x.intersection(y)
+
+    def get_main_activity(self) -> str|None:
+        """
+        Return the name of the main activity
+
+        This value is read from the `AndroidManifest.xml`
+
+        :returns: the name of the main activity
+        """
+        activities = self.get_main_activities()
+        if len(activities) == 1:
+            return self.axml.format_value(activities.pop())
+        elif len(activities) > 1:
+            main_activities = {self.axml.format_value(ma) for ma in activities}
+            # sorted is necessary
+            # 9fc7d3e8225f6b377f9181a92c551814317b77e1aa0df4c6d508d24b18f0f633
+            good_main_activities = sorted(
+                main_activities.intersection(self.get_activities())
+            )
+            if good_main_activities:
+                return good_main_activities[0]
+            return sorted(main_activities)[0]
+        return None
+
+
+    def get_activities(self) -> list[str]:
+        """
+        Return the `android:name` attribute of all activities
+
+        :returns: the list of `android:name` attribute of all activities
+        """
+        return list(self.axml.get_all_attribute_value("activity", "name"))
+
+    def get_activity_aliases(self) -> list[dict[str, str]]:
+        """
+        Return the `android:name` and `android:targetActivity` attribute of all activity aliases.
+
+        :returns: the list of `android:name` and `android:targetActivity` attribute of all activitiy aliases
+        """
+        ali = []
+        for alias in self.axml.find_tags('activity-alias'):
+            activity_alias = {}
+            for attribute in ['name', 'targetActivity']:
+                value = alias.get(attribute) or alias.get(namespace(attribute))
+                if not value:
+                    continue
+                activity_alias[attribute] = self.axml.format_value(value)
+            if activity_alias:
+                ali.append(activity_alias)
+        return ali
+    
+    def get_services(self) -> list[str]:
+        """
+        Return the `android:name` attribute of all services
+
+        :returns: the list of the `android:name` attribute of all services
+        """
+        return list(self.axml.get_all_attribute_value("service", "name"))
+
+    def get_receivers(self) -> list[str]:
+        """
+        Return the `android:name` attribute of all receivers
+
+        :returns: the list of the `android:name` attribute of all receivers
+        """
+        return list(self.axml.get_all_attribute_value("receiver", "name"))
+
+    def get_providers(self) -> list[str]:
+        """
+        Return the `android:name` attribute of all providers
+
+        :returns: the list of the `android:name` attribute of all providers
+        """
+        return list(self.axml.get_all_attribute_value("provider", "name"))

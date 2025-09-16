@@ -5,7 +5,7 @@ license = { file = "LICENSE" }
 keywords = ["Android, Androguard, Security"]
 description = "APK Parser"
 requires-python = ">=3.10"
-dynamic = ["version"]
+version = "0.0.1a1"
 authors = [{ name = "anthony", email = "ping@42.bzh" }]
 
 classifiers = [
@@ -23,13 +23,13 @@ classifiers = [
     "Topic :: Software Development",
     "Topic :: Utilities",
 ]
-dependencies = []
+dependencies = ["rich>=14.0.0", "asn1crypto>=1.5.1", "cryptography>=45.0.7", "python-magic>=0.4.27", "axml"]
 
 [project.scripts]
 apkparser = "apkparser.main:app"
 
 [build-system]
-requires = ["rich>=14.0.0", "setuptools>=68", "setuptools_scm>=8.0"]
+requires = ["setuptools>=68", "setuptools_scm>=8.0"]
 build-backend = "setuptools.build_meta"
 
 
@@ -38,10 +38,10 @@ where = ["."]
 include = ["apkparser", "apkparser.*"]
 
 
-[tool.setuptools_scm]
-version_file = "apkparser/__version__.py"
-
-
 [tool.black]
 line-length = 79
 skip-string-normalization = true
+
+[tool.isort]
+profile = "black"
+line_length = 79
