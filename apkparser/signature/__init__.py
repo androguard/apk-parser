@@ -606,9 +606,9 @@ class APKSignature:
         signature_expr = re.compile(r'\AMETA-INF/(?s:.)*\.(DSA|EC|RSA)\Z')
         signature_datas = []
 
-        for i in self.get_files():
+        for i in self._files.namelist():
             if signature_expr.search(i):
-                signature_datas.append(self.get_file(i))
+                signature_datas.append(self._files.read(i))
 
         return signature_datas
     

@@ -36,17 +36,30 @@ def app():
             LOGGER.info(f"Application name = {a.get_app_name()}")
             LOGGER.info(f"Main Activity = {a.get_main_activity()}")
             LOGGER.info(f"Activities = {a.get_activities()}")
+            for activity in a.get_activities():
+                LOGGER.info(f"\tIntent filters = {a.get_intent_filters('activity', activity)}")
             LOGGER.info(f"Activities alias = {a.get_activity_aliases()}")
+
             LOGGER.info(f"Services = {a.get_services()}")
+            for service in a.get_services():
+                LOGGER.info(f"\tIntent filters = {a.get_intent_filters('service', service)}")
+
             LOGGER.info(f"Receivers = {a.get_receivers()}")
+            for receiver in a.get_receivers():
+                LOGGER.info(f"\tIntent filters = {a.get_intent_filters('receiver', receiver)}")
+
             LOGGER.info(f"Providers = {a.get_providers()}")
 
+            LOGGER.info(f"Signature = {a.signature.get_signature()}")
+            LOGGER.info(f"Signature names = {a.signature.get_signature_names()}")
+            
             LOGGER.info(f"is signed = {a.signature.is_signed()}")
             LOGGER.info(f"v1 = {a.signature.is_signed_v1()}")
             LOGGER.info(f"v2 = {a.signature.is_signed_v2()}")
             LOGGER.info(f"v3 = {a.signature.is_signed_v3()}")
             LOGGER.info(a.signature.get_certificates())
             LOGGER.info(a.signature.get_public_keys_der_v3())
+            LOGGER.info(a.signature.get_certificates_v2())
 
     return 0
 

@@ -1,9 +1,13 @@
+<p align="center"><img width="120" src="./.github/logo.png"></p>
+<h2 align="center">APK-PARSER</h2>
+
 # Androguard's APK library: Your Crowbar for Android Archives
+
+<div align="center">
 
 ![Powered By: Androguard](https://img.shields.io/badge/androguard-green?style=for-the-badge&label=Powered%20by&link=https%3A%2F%2Fgithub.com%2Fandroguard)
 
-![logo|100](./data/logo.png)
-
+</div>
 
 ## Description
 

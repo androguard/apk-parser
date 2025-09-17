@@ -475,3 +475,69 @@ class APK(object):
         :returns: the list of the `android:name` attribute of all providers
         """
         return list(self.axml.get_all_attribute_value("provider", "name"))
+
+
+    def get_intent_filters(
+        self, itemtype: str, name: str
+    ) -> dict[str, list[str]]:
+        """
+        Find intent filters for a given item and name.
+
+        Intent filter are attached to activities, services or receivers.
+        You can search for the intent filters of such items and get a dictionary of all
+        attached actions and intent categories.
+
+        :param itemtype: the type of parent item to look for, e.g. `activity`,  `service` or `receiver`
+        :param name: the `android:name` of the parent item, e.g. activity name
+        :returns: a dictionary with the keys `action` and `category` containing the `android:name` of those items
+        """
+        attributes = {
+            "action": ["name"],
+            "category": ["name"],
+            "data": [
+                'scheme',
+                'host',
+                'port',
+                'path',
+                'pathPattern',
+                'pathPrefix',
+                'mimeType',
+            ],
+        }
+
+        d = {}
+        for element in attributes.keys():
+            d[element] = []
+
+        for item in self.axml.get_xml_obj().findall(".//" + itemtype):
+            if self.axml.format_value(item.get(namespace("name"))) == name:
+                for sitem in item.findall(".//intent-filter"):
+                    for element in d.keys():
+                        for ssitem in sitem.findall(element):
+                            if element == 'data':  # multiple attributes
+                                values = {}
+                                for attribute in attributes[element]:
+                                    value = ssitem.get(namespace(attribute))
+                                    if value:
+                                        if value.startswith('@'):
+                                            value = self.get_android_resources().get_res_value(
+                                                value
+                                            )
+                                        values[attribute] = value
+
+                                if values:
+                                    d[element].append(values)
+                            else:
+                                for attribute in attributes[element]:
+                                    value = ssitem.get(namespace(attribute))
+                                    if value.startswith('@'):
+                                        value = self.get_android_resources().get_res_value(value)
+
+                                    if value not in d[element]:
+                                        d[element].append(value)
+
+        for element in list(d.keys()):
+            if not d[element]:
+                del d[element]
+
+        return d
