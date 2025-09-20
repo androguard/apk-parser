@@ -351,5 +351,33 @@ class APKTest(unittest.TestCase):
             self.assertIsNone(a.signature.get_signature_name())
             self.assertEqual(a.signature.get_signature_names(), [])
 
+    def testAPKManifest(self):
+        with open(os.path.join(test_dir, 'data/APK/TestActivity.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(a.get_app_name(), "TestsAndroguardApplication")
+            self.assertEqual(a.get_app_icon(), "res/drawable-hdpi/icon.png")
+            self.assertEqual(
+                a.get_app_icon(max_dpi=120), "res/drawable-ldpi/icon.png"
+            )
+            self.assertEqual(
+                a.get_app_icon(max_dpi=160), "res/drawable-mdpi/icon.png"
+            )
+            self.assertEqual(
+                a.get_app_icon(max_dpi=240), "res/drawable-hdpi/icon.png"
+            )
+            self.assertIsNone(a.get_app_icon(max_dpi=1))
+            self.assertEqual(
+                a.get_main_activity(), "tests.androguard.TestActivity"
+            )
+            self.assertEqual(a.get_android_manifest().package, "tests.androguard")
+            self.assertEqual(a.get_android_manifest().androidversion["Code"], '1')
+            self.assertEqual(a.get_android_manifest().androidversion["Name"], "1.0")
+            self.assertEqual(a.get_android_manifest().get_min_sdk_version(), "9")
+            self.assertEqual(a.get_android_manifest().get_target_sdk_version(), "16")
+            self.assertIsNone(a.get_android_manifest().get_max_sdk_version())
+            self.assertEqual(a.get_android_manifest().permissions, [])
+            self.assertEqual(a.get_android_manifest().declared_permissions, [])
+
+
 if __name__ == '__main__':
     unittest.main(failfast=True)
