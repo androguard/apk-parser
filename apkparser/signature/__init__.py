@@ -3,6 +3,8 @@ import os
 import re
 
 from asn1crypto import cms, keys, x509
+from asn1crypto.util import OrderedDict
+
 from struct import unpack
 from hashlib import md5, sha1, sha224, sha256, sha384, sha512
 
@@ -649,7 +651,7 @@ class APKSignature:
         if (
             min_sdk_version is None or int(min_sdk_version) < 24
         ):  # AndroidSdkVersion.N
-            LOGGER.warning(
+            LOGGER.info(
                 f"minSdkVersion: {min_sdk_version} is less than 24. Getting the first signerInfo only!"
             )
             unverified_signer_infos_to_try = [signer_infos[0]]
@@ -896,3 +898,17 @@ class APKSignature:
                     break
 
         return matching_certificate
+
+    def get_certificate(self, filename: str) -> x509.Certificate|None:
+        """
+        Return a X.509 certificate object by giving the name in the apk file
+
+        :param filename: filename of the signature file in the APK
+        :returns: the certificate object
+        """
+        cert = self.get_certificate_der(filename)
+        if cert:
+            certificate = x509.Certificate.load(cert)
+        else:
+            certificate = None
+        return certificate

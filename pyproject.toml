@@ -3,9 +3,9 @@ name = "apk-parser"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["Android, Androguard, Security"]
-description = "APK Parser"
+description = "APK Parser: Your Crowbar for Android Archives"
 requires-python = ">=3.10"
-version = "0.0.1a1"
+version = "0.0.1"
 authors = [{ name = "anthony", email = "ping@42.bzh" }]
 
 classifiers = [
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development",
     "Topic :: Utilities",
 ]
-dependencies = ["rich>=14.0.0", "asn1crypto>=1.5.1", "cryptography>=45.0.7", "python-magic>=0.4.27", "axml"]
+dependencies = ["rich>=14.0.0", "asn1crypto>=1.5.1", "cryptography>=45.0.7", "python-magic>=0.4.27", "axml>=0.0.1"]
 
 [project.scripts]
 apkparser = "apkparser.main:app"

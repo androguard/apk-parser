@@ -1,7 +1,7 @@
 <p align="center"><img width="120" src="./.github/logo.png"></p>
 <h2 align="center">APK-PARSER</h2>
 
-# Androguard's APK library: Your Crowbar for Android Archives
+# APK Parser: Your Crowbar for Android Archive
 
 <div align="center">
 
@@ -15,11 +15,11 @@ At its core, every APK is a fortress built on a simple foundation: the ZIP archi
 
 This is a standalone, dependency-free, native Python library designed to do one thing and do it exceptionally well: deconstruct the fundamental structure of an Android Application Package (APK). It is a foundational pillar of the new Androguard Ecosystem, providing robust, reliable, and performant access to the raw contents of any APK file.
 
-## Philosophy
+### Philosophy
 
 Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk-parser has been uncoupled from the main analysis engine. It exists as an independent, lightweight, and highly portable tool. By focusing solely on the archive layer, it provides a stable and predictable interface for any tool that needs to peer inside an APK.
 
-## Key Features
+### Key Features
 
 - Archive Integrity & Parsing: Reads the full structure of the APK's ZIP archive, including the central directory, without relying on external unzip commands.
 
@@ -40,3 +40,8 @@ Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk
 ## Authors
 
 ## APK binary format
+
+
+## License
+
+Distributed under the [Apache License, Version 2.0](LICENSE).
