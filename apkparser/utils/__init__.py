@@ -1,6 +1,14 @@
 import io
 import struct
 
+class Error(Exception):
+    """Base class for exceptions in this module."""
+    pass
+
+
+class BrokenAPKError(Error):
+    pass
+
 def read_uint32_le(io_stream: io.BytesIO) -> int:
     """read a `uint32_le` from `io_stream`
     

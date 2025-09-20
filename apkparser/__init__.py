@@ -75,7 +75,11 @@ class APK(object):
 
     def _parse_fields(self, options: dict[str, bool]):
         if options.get(OPTION_AXML):
-            self.axml = AXMLPrinter(self.zip.read(APK_FILENAME_MANIFEST))
+            axml_bytes = self.zip.read(APK_FILENAME_MANIFEST)
+            if axml_bytes:
+                self.axml = AXMLPrinter(axml_bytes)
+            else:
+                LOGGER.warning("seems the APK has no AndroidManifest.xml")
 
         if options.get(OPTION_SIGNATURE):
             self.signature = APKSignature(self._raw, self.zip, self.axml)

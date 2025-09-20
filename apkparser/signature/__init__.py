@@ -16,18 +16,11 @@ from cryptography.hazmat.primitives.asymmetric import dsa, ec, padding, rsa
 from axml.axml import AXMLPrinter
 
 from apkparser.helper.logging import LOGGER
-from apkparser.utils import read_uint32_le
+from apkparser.utils import read_uint32_le, BrokenAPKError
 from apkparser.zip import headers
 
 from .utils import canonical_name, parse_signatures_or_digests
 
-class Error(Exception):
-    """Base class for exceptions in this module."""
-    pass
-
-
-class BrokenAPKError(Error):
-    pass
 
 # Constants in ZipFile
 PK_END_OF_CENTRAL_DIR = b"\x50\x4b\x05\x06"
@@ -628,8 +621,7 @@ class APKSignature:
         :param filename: Signature filename in APK
         :param max_sdk_version: An optional integer parameter for the max sdk version
         :returns: DER coded X.509 certificate as binary or None
-        """
-
+        """       
         # Get the signature
         pkcs7message = self._files.read(filename)
         # Get the .SF
@@ -646,17 +638,17 @@ class APKSignature:
             return None
 
         # Prior to Android N, Android attempts to verify only the first SignerInfo. From N onwards, Android attempts
-        # to verify all SignerInfos and then picks the first verified SignerInfo.
-        min_sdk_version = self._axml.get_min_sdk_version()
-        if (
-            min_sdk_version is None or int(min_sdk_version) < 24
-        ):  # AndroidSdkVersion.N
-            LOGGER.info(
-                f"minSdkVersion: {min_sdk_version} is less than 24. Getting the first signerInfo only!"
-            )
-            unverified_signer_infos_to_try = [signer_infos[0]]
-        else:
-            unverified_signer_infos_to_try = signer_infos
+        # to verify all SignerInfos and then picks the first verified SignerInfo.       
+        unverified_signer_infos_to_try = signer_infos
+        if self._axml:
+            min_sdk_version = self._axml.get_min_sdk_version()
+            if (
+                min_sdk_version is None or int(min_sdk_version) < 24
+            ):  # AndroidSdkVersion.N
+                LOGGER.info(
+                    f"minSdkVersion: {min_sdk_version} is less than 24. Getting the first signerInfo only!"
+                )
+                unverified_signer_infos_to_try = [signer_infos[0]]
 
         # Extract certificates from the PKCS7 object
         certificates = signed_data['content']['certificates']
@@ -834,7 +826,7 @@ class APKSignature:
 
         except InvalidSignature:
             LOGGER.info(
-                f"The public key of the certificate: {hashlib.sha256(matching_certificate.chosen.dump()).hexdigest()} "
+                f"The public key of the certificate: {sha256(matching_certificate.chosen.dump()).hexdigest()} "
                 f"is not associated with the signature!"
             )
 
@@ -908,7 +900,5 @@ class APKSignature:
         """
         cert = self.get_certificate_der(filename)
         if cert:
-            certificate = x509.Certificate.load(cert)
-        else:
-            certificate = None
-        return certificate
+            return x509.Certificate.load(cert)
+        return None

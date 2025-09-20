@@ -7,6 +7,7 @@ from hashlib import md5, sha1, sha256, sha512
 from asn1crypto import x509, pem
 
 from apkparser import APK, OPTION_AXML, OPTION_SIGNATURE
+from apkparser.utils import BrokenAPKError
 
 test_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -170,6 +171,7 @@ class APKTest(unittest.TestCase):
             "debuggable-boolean.apk",
             "debuggable-resource.apk",
             "mismatched-compression-method.apk",
+            "v1-only-empty.apk"
         ]
 
         v1_only_signed_attrs_fail = [
@@ -199,6 +201,7 @@ class APKTest(unittest.TestCase):
 
         for apath in os.listdir(root):
             if apath.endswith(".apk"):
+               # print(apath)
                 if apath in will_not_validate_correctly:
                     # These APKs are faulty (by design) and will return a not correct fingerprint.
                     # TODO: we need to check if we can prevent such errors...
@@ -207,6 +210,7 @@ class APKTest(unittest.TestCase):
                 fd = open(os.path.join(root, apath), "rb")
                 a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
                 fd.close()
+
                 self.assertIsInstance(a, APK)
 
                 # Test if the correct method returns True, while others return
@@ -241,18 +245,18 @@ class APKTest(unittest.TestCase):
 
                 # Special error cases
                 if apath == "v2-only-apk-sig-block-size-mismatch.apk":
-                    with self.assertRaises(apk.BrokenAPKError):
+                    with self.assertRaises(BrokenAPKError):
                         a.signature.is_signed_v2()
                     continue
                 elif apath == "v2-only-empty.apk":
-                    with self.assertRaises(apk.BrokenAPKError):
+                    with self.assertRaises(BrokenAPKError):
                         a.signature.is_signed_v2()
                     continue
                 elif (
                     apath
                     == "v3-only-with-rsa-pkcs1-sha512-4096-apk-sig-block-size-mismatch.apk"
                 ):
-                    with self.assertRaises(apk.BrokenAPKError):
+                    with self.assertRaises(BrokenAPKError):
                         a.signature.is_signed_v3()
                     continue
 
@@ -328,6 +332,24 @@ class APKTest(unittest.TestCase):
                             # Check that we get the same signature if we take the DER
                             self.assertEqual(sha256(c).hexdigest(), h)
 
+    def testMultipleCertsReturnTheCorrect(self):
+        sha256_fingerprint = (
+            '01e1999710a82c2749b4d50c445dc85d670b6136089d0a766a73827c82a1eac9'
+        )
+        with open(os.path.join(test_dir, 'data/APK/CertChain.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            sig = a.signature.get_signature_names()[0]
+            c = a.signature.get_certificate(sig)
+            self.assertEqual(
+                sha256(c.dump()).hexdigest(), sha256_fingerprint
+            )
+
+    def testAPKWrapperUnsigned(self):
+        with open(os.path.join(test_dir, 'data/APK/TestActivity_unsigned.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+      
+            self.assertIsNone(a.signature.get_signature_name())
+            self.assertEqual(a.signature.get_signature_names(), [])
 
 if __name__ == '__main__':
     unittest.main(failfast=True)

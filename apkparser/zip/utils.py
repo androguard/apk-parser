@@ -21,6 +21,9 @@ def extract_file_based_on_header_info(
     :return: Returns the actual extracted data for that file along with an indication of whether a static analysis evasion technique was used or not.
     :rtype: set(bytes, str)
     """
+    if not local_header_info or not central_directory_info:
+        return None, None
+    
     filename_length = local_header_info["file_name_length"]
     if (
         local_header_info["compressed_size"] == 0

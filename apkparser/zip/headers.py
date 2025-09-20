@@ -3,6 +3,8 @@ import os
 import struct
 from typing import Dict
 
+from apkparser import LOGGER
+
 from .utils import extract_file_based_on_header_info
 
 
@@ -604,10 +606,12 @@ class ZipEntry:
         """
         if filename in self.central_directory.entries:
             return self.central_directory.entries[filename].to_dict()
-        else:
-            raise KeyError(
+        
+
+        LOGGER.warning(
                 f"Key: {filename} was not found within the central directory entries!"
             )
+        return None
 
     def get_local_header_dict(self, filename):
         """
@@ -620,10 +624,12 @@ class ZipEntry:
         """
         if filename in self.local_headers:
             return self.local_headers[filename].to_dict()
-        else:
-            raise KeyError(
-                f"Key: {filename} was not found within the local headers list!"
-            )
+          
+        LOGGER.warning(
+            f"Key: {filename} was not found within the local headers list!"
+        )
+
+        return None
 
     def read(self, name):
         """
