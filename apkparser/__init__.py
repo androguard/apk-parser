@@ -11,11 +11,8 @@ from apkparser.zip import headers
 from apkparser.signature import APKSignature
 from apkparser.utils import is_android_raw
 
-from axml.axml import AXMLPrinter
+from axml.axml import AXMLPrinter, namespace
 from axml.arsc import ARSCParser, ARSCResTableConfig
-
-NS_ANDROID_URI = 'http://schemas.android.com/apk/res/android'
-NS_ANDROID = '{{{}}}'.format(NS_ANDROID_URI)  # Namespace as used by etree
 
 APK_FILENAME_MANIFEST = "AndroidManifest.xml"
 
@@ -30,12 +27,6 @@ class FileNotPresent(Error):
 
 OPTION_AXML = "AXML"
 OPTION_SIGNATURE = "SIGNATURE"
-
-def namespace(name: str) -> str:
-    """
-    return the name including the Android namespace URI
-    """
-    return NS_ANDROID + name
 
 class APK(object):
     def __init__(
@@ -74,6 +65,8 @@ class APK(object):
         self._parse_fields(options)
 
     def _parse_fields(self, options: dict[str, bool]):
+        self.declared_permissions = {}
+
         if options.get(OPTION_AXML):
             axml_bytes = self.zip.read(APK_FILENAME_MANIFEST)
             if axml_bytes:
@@ -84,6 +77,61 @@ class APK(object):
         if options.get(OPTION_SIGNATURE):
             self.signature = APKSignature(self._raw, self.zip, self.axml)
 
+
+        if self.axml:
+            # getting details of the declared permissions
+            for d_perm_item in self.axml.find_tags('permission'):
+                d_perm_name = self._get_res_string_value(
+                    str(self.axml.get_value_from_tag(d_perm_item, "name"))
+                )
+                d_perm_label = self._get_res_string_value(
+                    str(self.axml.get_value_from_tag(d_perm_item, "label"))
+                )
+                d_perm_description = self._get_res_string_value(
+                    str(
+                        self.axml.get_value_from_tag(d_perm_item, "description")
+                    )
+                )
+                d_perm_permissionGroup = self._get_res_string_value(
+                    str(
+                        self.axml.get_value_from_tag(
+                            d_perm_item, "permissionGroup"
+                        )
+                    )
+                )
+                d_perm_protectionLevel = self._get_res_string_value(
+                    str(
+                        self.axml.get_value_from_tag(
+                            d_perm_item, "protectionLevel"
+                        )
+                    )
+                )
+
+                d_perm_details = {
+                    "label": d_perm_label,
+                    "description": d_perm_description,
+                    "permissionGroup": d_perm_permissionGroup,
+                    "protectionLevel": d_perm_protectionLevel,
+                }
+                self.declared_permissions[d_perm_name] = d_perm_details
+
+
+    def _get_res_string_value(self, string):
+        if not string.startswith('@string/'):
+            return string
+        string_key = string[9:]
+
+        res_parser = self.get_android_resources()
+        if not res_parser:
+            return ''
+        string_value = ''
+        for package_name in res_parser.get_packages_names():
+            extracted_values = res_parser.get_string(package_name, string_key)
+            if extracted_values:
+                string_value = extracted_values[1]
+                break
+        return string_value
+    
     def get_files(self) -> list[str]:
         """
         Return the file names inside the APK.

@@ -376,8 +376,245 @@ class APKTest(unittest.TestCase):
             self.assertEqual(a.get_android_manifest().get_target_sdk_version(), "16")
             self.assertIsNone(a.get_android_manifest().get_max_sdk_version())
             self.assertEqual(a.get_android_manifest().permissions, [])
-            self.assertEqual(a.get_android_manifest().declared_permissions, [])
+            self.assertEqual(a.declared_permissions, {})
 
+    def testAPKPermissions(self):
+        with open(os.path.join(test_dir, 'data/APK/a2dp.Vol_137.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+    
+            self.assertEqual(a.get_android_manifest().package, "a2dp.Vol")
+            self.assertListEqual(
+                sorted(a.get_android_manifest().permissions),
+                sorted(
+                    [
+                        "android.permission.RECEIVE_BOOT_COMPLETED",
+                        "android.permission.CHANGE_WIFI_STATE",
+                        "android.permission.ACCESS_WIFI_STATE",
+                        "android.permission.KILL_BACKGROUND_PROCESSES",
+                        "android.permission.BLUETOOTH",
+                        "android.permission.BLUETOOTH_ADMIN",
+                        "com.android.launcher.permission.READ_SETTINGS",
+                        "android.permission.RECEIVE_SMS",
+                        "android.permission.MODIFY_AUDIO_SETTINGS",
+                        "android.permission.READ_CONTACTS",
+                        "android.permission.ACCESS_COARSE_LOCATION",
+                        "android.permission.ACCESS_FINE_LOCATION",
+                        "android.permission.ACCESS_LOCATION_EXTRA_COMMANDS",
+                        "android.permission.WRITE_EXTERNAL_STORAGE",
+                        "android.permission.READ_PHONE_STATE",
+                        "android.permission.BROADCAST_STICKY",
+                        "android.permission.GET_ACCOUNTS",
+                    ]
+                ),
+            )
+
+    def testAPKActivitiesAreString(self):
+        with open(os.path.join(test_dir, 'data/APK/a2dp.Vol_137.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            activities = a.get_activities()
+            self.assertTrue(
+                isinstance(activities[0], str), 'activities[0] is not of type str'
+            )
+
+
+
+    def testAPKIntentFilters(self):
+        with open(os.path.join(test_dir, 'data/APK/a2dp.Vol_137.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+
+            activities = a.get_activities()
+            receivers = a.get_receivers()
+            services = a.get_services()
+            filter_list = []
+            for i in activities:
+                filters = a.get_intent_filters("activity", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            self.assertEqual(
+                [
+                    {
+                        'action': ['android.intent.action.MAIN'],
+                        'category': ['android.intent.category.LAUNCHER'],
+                    }
+                ],
+                filter_list,
+            )
+            filter_list = []
+            for i in receivers:
+                filters = a.get_intent_filters("receiver", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            for expected in [
+                {
+                    'action': [
+                        'android.intent.action.BOOT_COMPLETED',
+                        'android.intent.action.MY_PACKAGE_REPLACED',
+                    ],
+                    'category': ['android.intent.category.HOME'],
+                },
+                {'action': ['android.appwidget.action.APPWIDGET_UPDATE']},
+            ]:
+                assert expected in filter_list
+            filter_list = []
+            for i in services:
+                filters = a.get_intent_filters("service", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            self.assertEqual(
+                filter_list,
+                [
+                    {
+                        'action': [
+                            'android.service.notification.NotificationListenerService'
+                        ]
+                    }
+                ],
+            )
+
+        with open(os.path.join(test_dir, 'data/APK/com.test.intent_filter.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            
+      
+            activities = a.get_activities()
+            receivers = a.get_receivers()
+            services = a.get_services()
+            filter_list = []
+            for i in activities:
+                filters = a.get_intent_filters("activity", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            for expected in [
+                {
+                    'action': ['android.intent.action.VIEW'],
+                    'category': [
+                        'android.intent.category.APP_BROWSER',
+                        'android.intent.category.DEFAULT',
+                        'android.intent.category.BROWSABLE',
+                    ],
+                    'data': [
+                        {
+                            'scheme': 'testscheme',
+                            'host': 'testhost',
+                            'port': '0301',
+                            'path': '/testpath',
+                            'pathPattern': 'testpattern',
+                            'mimeType': 'text/html',
+                        }
+                    ],
+                },
+                {
+                    'action': ['android.intent.action.MAIN'],
+                    'category': ['android.intent.category.LAUNCHER'],
+                },
+            ]:
+                assert expected in filter_list
+            filter_list = []
+            for i in receivers:
+                filters = a.get_intent_filters("receiver", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            self.assertEqual(
+                filter_list,
+                [
+                    {
+                        'action': ['android.intent.action.VIEW'],
+                        'category': [
+                            'android.intent.category.DEFAULT',
+                            'android.intent.category.BROWSABLE',
+                        ],
+                        'data': [
+                            {
+                                'scheme': 'testhost',
+                                'host': 'testscheme',
+                                'port': '0301',
+                                'path': '/testpath',
+                                'pathPattern': 'testpattern',
+                                'mimeType': 'text/html',
+                            }
+                        ],
+                    }
+                ],
+            )
+            filter_list = []
+            for i in services:
+                filters = a.get_intent_filters("service", i)
+                if len(filters) > 0:
+                    filter_list.append(filters)
+            self.assertEqual(
+                filter_list,
+                [
+                    {
+                        'action': ['android.intent.action.RESPOND_VIA_MESSAGE'],
+                        'data': [
+                            {
+                                'scheme': 'testhost',
+                                'host': 'testscheme',
+                                'port': '0301',
+                                'path': '/testpath',
+                                'pathPattern': 'testpattern',
+                                'mimeType': 'text/html',
+                            },
+                            {
+                                'scheme': 'testscheme2',
+                                'host': 'testhost2',
+                                'port': '0301',
+                                'path': '/testpath2',
+                                'pathPattern': 'testpattern2',
+                                'mimeType': 'image/png',
+                            },
+                        ],
+                    }
+                ],
+            )
+
+    def testEffectiveTargetSdkVersion(self):
+        with open(os.path.join(test_dir, 'data/APK/app-prod-debug.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(27, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/Invalid.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(15, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/TC-debug.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(1, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/TCDiff-debug.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(1, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/TestActivity.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(16, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/TestActivity_unsigned.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(16, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/Test-debug.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(1, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/Test-debug-unaligned.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(1, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/a2dp.Vol_137.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(25, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/hello-world.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(25, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/duplicate.permisssions_9999999.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(27, a.axml.get_effective_target_sdk_version())
+
+        with open(os.path.join(test_dir, 'data/APK/com.politedroid_4.apk'), "rb") as fd:
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            self.assertEqual(3, a.axml.get_effective_target_sdk_version())
 
 if __name__ == '__main__':
     unittest.main(failfast=True)
