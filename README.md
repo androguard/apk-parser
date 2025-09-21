@@ -32,7 +32,6 @@ Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk
 - Pure & Pythonic: Written in native Python with zero external dependencies for maximum portability and a minimal footprint.
 
 
-
 ## Installation
 
 ## Examples
@@ -40,7 +39,6 @@ Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk
 ## Authors
 
 ## APK binary format
-
 
 ## License
 
