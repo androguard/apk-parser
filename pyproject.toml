@@ -1,5 +1,5 @@
 [project]
-name = "apk-parser"
+name = "apkparser-ag"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["Android, Androguard, Security"]
@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Software Development",
     "Topic :: Utilities",
 ]
-dependencies = ["rich>=14.0.0", "asn1crypto>=1.5.1", "cryptography>=45.0.7", "python-magic>=0.4.27", "axml>=0.0.1"]
+dependencies = ["rich>=14.0.0", "asn1crypto>=1.5.1", "cryptography>=45.0.7", "python-magic>=0.4.27", "axml>=0.0.2"]
 
 [project.scripts]
 apkparser = "apkparser.main:app"
