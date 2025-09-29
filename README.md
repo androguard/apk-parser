@@ -7,7 +7,7 @@
 
 ![Powered](https://img.shields.io/badge/androguard-green?style=for-the-badge&label=Powered%20by&link=https%3A%2F%2Fgithub.com%2Fandroguard)
 ![Sponsor](https://img.shields.io/badge/sponsor-nlnet-blue?style=for-the-badge&link=https%3A%2F%2Fnlnet.nl%2F)
-
+![PYPY](https://img.shields.io/badge/PYPI-APKPARSER-violet?style=for-the-badge&link=https%3A%2F%2Fpypi.org%2Fproject%2Faxml%2F)
 
 </div>
 
@@ -35,15 +35,22 @@ Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk
 
 ## Installation
 
-ˇˇˇ
-$ pip install apk-parser
-ˇˇˇ
 
-## Examples
+If you would like to install it locally, please create a new venv to use it directly, and then:
 
-## Authors
+```
+$ git clone https://github.com/androguard/apk-parser.git
+$ pip install -e .
+```
 
-## APK binary format
+or directly via pypi:
+```
+$ pip install apkparser-ag
+```
+
+## Usage
+
+## API
 
 ## License
 
