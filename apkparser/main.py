@@ -59,6 +59,8 @@ def app():
             LOGGER.info(a.signature.get_certificates())
             LOGGER.info(a.signature.get_public_keys_der_v3())
             LOGGER.info(a.signature.get_certificates_v2())
+            LOGGER.info(f"Libraries = {a.get_libraries()}")
+
 
     return 0
 
