@@ -10,6 +10,7 @@ from apkparser.helper.logging import LOGGER
 from apkparser.zip import headers
 from apkparser.signature import APKSignature
 from apkparser.utils import is_android_raw
+from apkparser.permissions import Permissions
 
 from axml.axml import AXMLPrinter, namespace
 from axml.arsc import ARSCParser, ARSCResTableConfig
@@ -27,6 +28,8 @@ class FileNotPresent(Error):
 
 OPTION_AXML = "AXML"
 OPTION_SIGNATURE = "SIGNATURE"
+OPTION_PERMISSION = "PERMISSION"
+
 
 class APK(object):
     def __init__(
@@ -39,17 +42,9 @@ class APK(object):
         self.valid_apk: boolean = False
         self.axml: AXMLPrinter|None = None
         self.signature: APKSignature|None = None
+        self.permissions: Permissions|None = None
 
-        self.xml = {}
-        self.arsc = {}
-
-        self.package = ""
-        self.androidversion = {}
-
-        self.permissions = []
-        self.uses_permissions = []
-        self.declared_permissions = {}
-        
+        self.arsc = {}  
 
         self._files = {}
         self.files_crc32 = {}
@@ -79,41 +74,8 @@ class APK(object):
 
 
         if self.axml:
-            # getting details of the declared permissions
-            for d_perm_item in self.axml.find_tags('permission'):
-                d_perm_name = self._get_res_string_value(
-                    str(self.axml.get_value_from_tag(d_perm_item, "name"))
-                )
-                d_perm_label = self._get_res_string_value(
-                    str(self.axml.get_value_from_tag(d_perm_item, "label"))
-                )
-                d_perm_description = self._get_res_string_value(
-                    str(
-                        self.axml.get_value_from_tag(d_perm_item, "description")
-                    )
-                )
-                d_perm_permissionGroup = self._get_res_string_value(
-                    str(
-                        self.axml.get_value_from_tag(
-                            d_perm_item, "permissionGroup"
-                        )
-                    )
-                )
-                d_perm_protectionLevel = self._get_res_string_value(
-                    str(
-                        self.axml.get_value_from_tag(
-                            d_perm_item, "protectionLevel"
-                        )
-                    )
-                )
-
-                d_perm_details = {
-                    "label": d_perm_label,
-                    "description": d_perm_description,
-                    "permissionGroup": d_perm_permissionGroup,
-                    "protectionLevel": d_perm_protectionLevel,
-                }
-                self.declared_permissions[d_perm_name] = d_perm_details
+            if options.get(OPTION_PERMISSION):
+                self.permissions = Permissions(self)
 
 
     def _get_res_string_value(self, string):

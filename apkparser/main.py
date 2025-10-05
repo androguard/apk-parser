@@ -2,7 +2,7 @@ import argparse
 import io
 
 from .helper.logging import LOGGER
-from . import APK, OPTION_AXML, OPTION_SIGNATURE
+from . import APK, OPTION_AXML, OPTION_SIGNATURE, OPTION_PERMISSION
 
 
 def initParser():
@@ -25,7 +25,7 @@ arguments = initParser()
 def app():
     if arguments.input:
         with open(arguments.input, 'rb') as fd:
-            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+            a = APK(io.BytesIO(fd.read()), {OPTION_AXML: True, OPTION_SIGNATURE: True, OPTION_PERMISSION: True})
             LOGGER.info(a.get_files())
             LOGGER.info(a.get_android_manifest().package)
             LOGGER.info(a.get_android_manifest().permissions)
@@ -60,7 +60,11 @@ def app():
             LOGGER.info(a.signature.get_public_keys_der_v3())
             LOGGER.info(a.signature.get_certificates_v2())
             LOGGER.info(f"Libraries = {a.get_libraries()}")
+            LOGGER.info(f"Multidex = {a.is_multidex()}")
 
+
+            LOGGER.info(f"get_uses_implied_permission_list = {a.permissions.get_uses_implied_permission_list()}")
+            LOGGER.info(f"get_details_permissions = {a.permissions.get_details_permissions()}")
 
     return 0
 

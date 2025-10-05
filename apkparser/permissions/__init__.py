@@ -1,3 +1,5 @@
+from axml.axml import AXMLPrinter
+
 from apkparser.helper.logging import LOGGER
 
 # Dictionary of the different protection levels mapped to their corresponding attribute names as described in
@@ -34,14 +36,58 @@ protection_flags_to_attributes = {
     "0x08000000": "known signer",
 }  
 
-class Permission(object):
+class Permissions(object):
+    def __init__(self, apk) -> None:
+        self._apk = apk
+        self.declared_permissions = {}
+
+        self.permissions = apk.axml.permissions.copy()
+        self.uses_permissions = apk.axml.uses_permissions.copy()
+
+
+        # getting details of the declared permissions
+        for d_perm_item in apk.axml.find_tags('permission'):
+            d_perm_name = apk._get_res_string_value(
+                str(apk.axml.get_value_from_tag(d_perm_item, "name"))
+            )
+            d_perm_label = apk._get_res_string_value(
+                str(apk.axml.get_value_from_tag(d_perm_item, "label"))
+            )
+            d_perm_description = apk._get_res_string_value(
+                str(
+                    apk.axml.get_value_from_tag(d_perm_item, "description")
+                )
+            )
+            d_perm_permissionGroup = apk._get_res_string_value(
+                str(
+                    apk.axml.get_value_from_tag(
+                        d_perm_item, "permissionGroup"
+                    )
+                )
+            )
+            d_perm_protectionLevel = apk._get_res_string_value(
+                str(
+                    apk.axml.get_value_from_tag(
+                        d_perm_item, "protectionLevel"
+                    )
+                )
+            )
+
+            d_perm_details = {
+                "label": d_perm_label,
+                "description": d_perm_description,
+                "permissionGroup": d_perm_permissionGroup,
+                "protectionLevel": d_perm_protectionLevel,
+            }
+            self.declared_permissions[d_perm_name] = d_perm_details
+
     def get_uses_implied_permission_list(self) -> list[str]:
         """
         Return all permissions implied by the target SDK or other permissions.
         
         :returns: list of all permissions implied by the target SDK or other permissions as strings
         """
-        target_sdk_version = self.get_effective_target_sdk_version()
+        target_sdk_version = self._apk.axml.get_effective_target_sdk_version()
 
         READ_CALL_LOG = 'android.permission.READ_CALL_LOG'
         READ_CONTACTS = 'android.permission.READ_CONTACTS'
