@@ -50,7 +50,14 @@ $ pip install apkparser-ag
 
 ## Usage
 
+
 ## API
+
+### File Extraction
+
+### Signature
+
+### Permissions
 
 ## License
 

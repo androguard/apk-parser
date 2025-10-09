@@ -1,5 +1,6 @@
 from axml.axml import AXMLPrinter
 
+from .ressources import load_api_specific_resource_module
 from apkparser.helper.logging import LOGGER
 
 # Dictionary of the different protection levels mapped to their corresponding attribute names as described in
@@ -41,9 +42,19 @@ class Permissions(object):
         self._apk = apk
         self.declared_permissions = {}
 
+        # Copy permissions from the AXML module for easy usage !
         self.permissions = apk.axml.permissions.copy()
         self.uses_permissions = apk.axml.uses_permissions.copy()
 
+
+        self.permission_module = load_api_specific_resource_module(
+            "aosp_permissions", apk.axml.get_target_sdk_version()
+        )
+        self.permission_module_min_sdk = (
+            load_api_specific_resource_module(
+                "aosp_permissions", apk.axml.get_min_sdk_version()
+            )
+        )
 
         # getting details of the declared permissions
         for d_perm_item in apk.axml.find_tags('permission'):
@@ -140,9 +151,10 @@ class Permissions(object):
         return protection_level
 
     def _fill_deprecated_permissions(self, permissions):
-        min_sdk = self.get_min_sdk_version()
-        target_sdk = self.get_target_sdk_version()
+        min_sdk = self._apk.axml.get_min_sdk_version()
+        target_sdk = self._apk.axml.get_target_sdk_version()
         filled_permissions = permissions.copy()
+
         for permission in filled_permissions:
             protection_level, label, description = filled_permissions[
                 permission
