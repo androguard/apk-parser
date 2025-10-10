@@ -53,18 +53,22 @@ def app():
             LOGGER.info(f"Signature names = {a.signature.get_signature_names()}")
             
             LOGGER.info(f"is signed = {a.signature.is_signed()}")
+            
             LOGGER.info(f"v1 = {a.signature.is_signed_v1()}")
             LOGGER.info(f"v2 = {a.signature.is_signed_v2()}")
             LOGGER.info(f"v3 = {a.signature.is_signed_v3()}")
             LOGGER.info(a.signature.get_certificates())
             LOGGER.info(a.signature.get_public_keys_der_v3())
             LOGGER.info(a.signature.get_certificates_v2())
+
             LOGGER.info(f"Libraries = {a.get_libraries()}")
             LOGGER.info(f"Multidex = {a.is_multidex()}")
 
-
             LOGGER.info(f"get_uses_implied_permission_list = {a.permissions.get_uses_implied_permission_list()}")
             LOGGER.info(f"get_details_permissions = {a.permissions.get_details_permissions()}")
+            LOGGER.info(f"get_requested_aosp_permissions = {a.permissions.get_requested_aosp_permissions()}")
+            LOGGER.info(f"get_requested_aosp_permissions_details = {a.permissions.get_requested_aosp_permissions_details()}")
+            LOGGER.info(f"get_declared_permissions = {a.permissions.get_declared_permissions()}")
 
     return 0
 

@@ -230,8 +230,7 @@ class Permissions(object):
         :returns: requested permissions
         """
         aosp_permissions = []
-        all_permissions = self.get_permissions()
-        for perm in all_permissions:
+        for perm in self.permissions:
             if perm in list(self.permission_module.keys()):
                 aosp_permissions.append(perm)
         return aosp_permissions
@@ -258,8 +257,7 @@ class Permissions(object):
         :returns: requested permissions
         """
         third_party_permissions = []
-        all_permissions = self.get_permissions()
-        for perm in all_permissions:
+        for perm in self.permissions:
             if perm not in list(self.permission_module.keys()):
                 third_party_permissions.append(perm)
         return third_party_permissions

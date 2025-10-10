@@ -60,8 +60,6 @@ class APK(object):
         self._parse_fields(options)
 
     def _parse_fields(self, options: dict[str, bool]):
-        self.declared_permissions = {}
-
         if options.get(OPTION_AXML):
             axml_bytes = self.zip.read(APK_FILENAME_MANIFEST)
             if axml_bytes:
@@ -319,7 +317,7 @@ class APK(object):
 
             # FIXME: would need to use _format_value inside get_attribute_value for each returned name!
             # For example, as the activity name might be foobar.foo.bar but inside the activity it is only .bar
-            app_name = self.get_attribute_value(
+            app_name = self.axml.get_attribute_value(
                 'activity', 'label', name=main_activity_name
             )
 
@@ -461,7 +459,7 @@ class APK(object):
                         app_icon = file_name
                         current_dpi = dpi
             except Exception as e:
-                logger.warning("Exception selecting app icon: %s" % e)
+                LOGGER.warning("Exception selecting app icon: %s" % e)
 
         return app_icon
 
