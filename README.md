@@ -154,6 +154,14 @@ The ```permissions``` object in the APK can handle all things related to permiss
 {'android.permission.USE_EXACT_ALARM': ['normal', 'Schedule alarms or event reminders', 'This app can schedule actions like alarms and reminders to notify you at a desired time in the future.'], 'android.permission.FOREGROUND_SERVICE': ['normal|instant', 'run foreground service', 'Allows the app to make use of foreground services.'], ...}
 ```
 
+### DEX objects
+
+It is possible also to get all DEX (DEXHelper) objects from the APK for easy usage like:
+```
+    for dex_file in w.get_all_dex():
+        print(dex_file)
+```
+
 ## License
 
 Distributed under the [Apache License, Version 2.0](LICENSE).

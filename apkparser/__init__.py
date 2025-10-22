@@ -15,6 +15,9 @@ from apkparser.permissions import Permissions
 from axml.axml import AXMLPrinter, namespace
 from axml.arsc import ARSCParser, ARSCResTableConfig
 
+from dexparser import DEX, DEXHelper
+
+
 APK_FILENAME_MANIFEST = "AndroidManifest.xml"
 
 class Error(Exception):
@@ -167,9 +170,9 @@ class APK(object):
         return self._files
 
 
-    def get_dex(self) -> bytes:
+    def get_dex(self) -> DEXHelper|None:
         """
-        Return the raw data of the classes dex file
+        Return the DEXHelper object of the classes dex file
 
         This will give you the data of the file called `classes.dex`
         inside the APK. If the APK has multiple DEX files, you need to use [get_all_dex][androguard.core.apk.APK.get_all_dex].
@@ -178,10 +181,9 @@ class APK(object):
         :returns: the raw data of the classes dex file
         """
         try:
-            return self.get_file("classes.dex")
+            yield DEXHelper.from_string(self.get_file("classes.dex"))
         except FileNotPresent:
-            # TODO is this a good idea to return an empty string?
-            return b""
+            return None
 
     def get_dex_names(self) -> list[str]:
         """
@@ -194,14 +196,15 @@ class APK(object):
         dexre = re.compile(r"^classes(\d*).dex$")
         return filter(lambda x: dexre.match(x), self.get_files())
 
-    def get_all_dex(self) -> Iterator[bytes]:
+    def get_all_dex(self) -> Iterator[DEXHelper]:
         """
         Return the raw bytes data of all classes dex files
 
         :returns: the raw bytes data of all classes dex files
         """
         for dex_name in self.get_dex_names():
-            yield self.get_file(dex_name)
+            dh = DEXHelper.from_string(self.get_file(dex_name))
+            yield dh
 
     def is_multidex(self) -> bool:
         """

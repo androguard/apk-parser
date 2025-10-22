@@ -70,6 +70,9 @@ def app():
             LOGGER.info(f"get_requested_aosp_permissions_details = {a.permissions.get_requested_aosp_permissions_details()}")
             LOGGER.info(f"get_declared_permissions = {a.permissions.get_declared_permissions()}")
 
+            for dex_file in a.get_all_dex():
+                LOGGER.info(dex_file)
+
     return 0
 
 
