@@ -1,0 +1,62 @@
+//! Android manifest parsing (binary AXML) - mirrors AXMLPrinter usage.
+
+use std::io::Cursor;
+
+use crate::error::{Error, Result};
+
+/// Parsed Android manifest (package, permissions, min/target SDK, etc.).
+#[derive(Debug, Default, Clone)]
+pub struct AndroidManifest {
+    pub package: Option<String>,
+    pub permissions: Vec<String>,
+    pub uses_permissions: Vec<String>,
+    pub min_sdk_version: Option<u32>,
+    pub target_sdk_version: Option<u32>,
+    pub version_code: Option<u32>,
+    pub version_name: Option<String>,
+}
+
+/// Parse binary AndroidManifest.xml bytes (AXML format) using axmldecoder.
+pub fn parse_manifest(axml_bytes: &[u8]) -> Result<AndroidManifest> {
+    let mut cursor = Cursor::new(axml_bytes);
+    let doc = axmldecoder::parse(&mut cursor).map_err(|e| Error::Parse(format!("AXML: {}", e)))?;
+    let mut manifest = AndroidManifest::default();
+    let root = match doc.get_root() {
+        Some(axmldecoder::Node::Element(e)) => e,
+        _ => return Ok(manifest),
+    };
+    fn collect_manifest(elem: &axmldecoder::Element, manifest: &mut AndroidManifest) {
+        let tag = elem.get_tag();
+        for (k, v) in elem.get_attributes() {
+            match (tag, k.as_str()) {
+                ("manifest", "package") => manifest.package = Some(v.clone()),
+                ("manifest", "versionCode" | "android:versionCode") => {
+                    manifest.version_code = v.parse().ok();
+                }
+                ("manifest", "versionName" | "android:versionName") => {
+                    manifest.version_name = Some(v.clone());
+                }
+                ("uses-sdk", "minSdkVersion" | "android:minSdkVersion") => {
+                    manifest.min_sdk_version = v.parse().ok();
+                }
+                ("uses-sdk", "targetSdkVersion" | "android:targetSdkVersion") => {
+                    manifest.target_sdk_version = v.parse().ok();
+                }
+                ("uses-permission" | "uses-permission-sdk-23", "name" | "android:name") => {
+                    manifest.uses_permissions.push(v.clone());
+                }
+                ("permission", "name" | "android:name") => {
+                    manifest.permissions.push(v.clone());
+                }
+                _ => {}
+            }
+        }
+        for child in elem.get_children() {
+            if let axmldecoder::Node::Element(e) = child {
+                collect_manifest(e, manifest);
+            }
+        }
+    }
+    collect_manifest(root, &mut manifest);
+    Ok(manifest)
+}
