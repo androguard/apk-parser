@@ -172,7 +172,8 @@ pub fn write_test_apkm(base_apk: &[u8], split_apk: &[u8]) -> Result<Vec<u8>> {
     use std::io::{Cursor, Write};
     let cursor = Cursor::new(Vec::new());
     let mut zip = zip::ZipWriter::new(cursor);
-    let opts = zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let opts =
+        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
     zip.start_file("info.json", opts)
         .map_err(|e| Error::Parse(e.to_string()))?;
     zip.write_all(br#"{"apkm_version":1,"pname":"com.example.test"}"#)
@@ -263,7 +264,10 @@ fn zip_has_root_manifest(zip: &ZipEntry) -> bool {
 }
 
 fn safe_filename(name: &str) -> String {
-    name.rsplit('/').next().unwrap_or(name).replace(['\\', '\0'], "_")
+    name.rsplit('/')
+        .next()
+        .unwrap_or(name)
+        .replace(['\\', '\0'], "_")
 }
 
 #[cfg(test)]

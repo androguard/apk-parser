@@ -27,9 +27,7 @@ fn test_apk_load_all() {
             };
             let result = Apk::from_bytes(
                 &apk,
-                ApkOptions::default()
-                    .with_axml(true)
-                    .with_signature(true),
+                ApkOptions::default().with_axml(true).with_signature(true),
             );
             if result.is_ok() {
                 count += 1;
@@ -54,9 +52,7 @@ fn test_multiple_certs_return_the_correct() {
     let apk = std::fs::read(&apk_path).unwrap();
     let apk = Apk::from_bytes(
         &apk,
-        ApkOptions::default()
-            .with_axml(true)
-            .with_signature(true),
+        ApkOptions::default().with_axml(true).with_signature(true),
     )
     .unwrap();
     let sig = apk.get_signature().unwrap();
@@ -84,9 +80,7 @@ fn test_apk_manifest() {
     let apk = std::fs::read(&apk_path).unwrap();
     let apk = Apk::from_bytes(
         &apk,
-        ApkOptions::default()
-            .with_axml(true)
-            .with_signature(true),
+        ApkOptions::default().with_axml(true).with_signature(true),
     )
     .unwrap();
     let manifest = apk.get_android_manifest().unwrap();
@@ -112,9 +106,7 @@ fn test_apk_permissions() {
     let apk = std::fs::read(&apk_path).unwrap();
     let apk = Apk::from_bytes(
         &apk,
-        ApkOptions::default()
-            .with_axml(true)
-            .with_signature(true),
+        ApkOptions::default().with_axml(true).with_signature(true),
     )
     .unwrap();
     let manifest = apk.get_android_manifest().unwrap();
@@ -140,7 +132,11 @@ fn test_apk_permissions() {
     ]
     .into_iter()
     .collect();
-    let mut got: Vec<&str> = manifest.uses_permissions.iter().map(String::as_str).collect();
+    let mut got: Vec<&str> = manifest
+        .uses_permissions
+        .iter()
+        .map(String::as_str)
+        .collect();
     got.sort();
     let mut exp_sorted: Vec<&str> = expected.to_vec();
     exp_sorted.sort();
@@ -171,9 +167,7 @@ fn test_target_sdk_version() {
         let apk = std::fs::read(&apk_path).unwrap();
         let apk = match Apk::from_bytes(
             &apk,
-            ApkOptions::default()
-                .with_axml(true)
-                .with_signature(true),
+            ApkOptions::default().with_axml(true).with_signature(true),
         ) {
             Ok(a) => a,
             Err(_) => continue,
@@ -228,9 +222,7 @@ fn test_apksign_apks_parse() {
             let apk = std::fs::read(&path).unwrap();
             let result = Apk::from_bytes(
                 &apk,
-                ApkOptions::default()
-                    .with_axml(true)
-                    .with_signature(true),
+                ApkOptions::default().with_axml(true).with_signature(true),
             );
             if result.is_ok() {
                 let a = result.unwrap();
@@ -244,9 +236,7 @@ fn test_apksign_apks_parse() {
         let apk = std::fs::read(&path).unwrap();
         let a = match Apk::from_bytes(
             &apk,
-            ApkOptions::default()
-                .with_axml(true)
-                .with_signature(true),
+            ApkOptions::default().with_axml(true).with_signature(true),
         ) {
             Ok(x) => x,
             Err(_) => continue,

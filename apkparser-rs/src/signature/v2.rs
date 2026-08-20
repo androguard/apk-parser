@@ -57,7 +57,8 @@ pub fn parse_v2_signing_block(block_bytes: &[u8]) -> Result<Vec<ApkV2Signer>> {
         let mut cert_pos = start_certs;
         signed_data_cursor.set_position(start_certs as u64);
         while cert_pos < start_certs + len_certs && cert_pos + 4 <= signed_data_bytes.len() {
-            let len_cert = read_uint32_le(&mut Cursor::new(&signed_data_bytes[cert_pos..]))? as usize;
+            let len_cert =
+                read_uint32_le(&mut Cursor::new(&signed_data_bytes[cert_pos..]))? as usize;
             cert_pos += 4;
             if cert_pos + len_cert > signed_data_bytes.len() {
                 break;

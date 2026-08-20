@@ -24,10 +24,7 @@ struct PermissionsFile {
 
 /// Load permissions JSON for the given API level from a directory containing permissions_XX.json.
 /// Falls back to nearest available level (e.g. 28 -> 27 if 27 exists).
-pub fn load_permissions(
-    base_path: &Path,
-    api_level: u32,
-) -> Result<PermissionsMap> {
+pub fn load_permissions(base_path: &Path, api_level: u32) -> Result<PermissionsMap> {
     let mut path = base_path.join(format!("permissions_{}.json", api_level));
     if !path.exists() {
         let levels = available_levels(base_path)?;
@@ -39,7 +36,11 @@ pub fn load_permissions(
         } else if api_level < *levels.iter().min().unwrap() {
             *levels.iter().min().unwrap()
         } else {
-            *levels.iter().filter(|&&l| l < api_level).max().unwrap_or(&levels[0])
+            *levels
+                .iter()
+                .filter(|&&l| l < api_level)
+                .max()
+                .unwrap_or(&levels[0])
         };
         path = base_path.join(format!("permissions_{}.json", api_level));
     }
@@ -57,7 +58,11 @@ fn available_levels(base_path: &Path) -> Result<Vec<u32>> {
         let name = entry.file_name();
         let name = name.to_string_lossy();
         if name.starts_with("permissions_") && name.ends_with(".json") {
-            if let Ok(n) = name.trim_start_matches("permissions_").trim_end_matches(".json").parse::<u32>() {
+            if let Ok(n) = name
+                .trim_start_matches("permissions_")
+                .trim_end_matches(".json")
+                .parse::<u32>()
+            {
                 levels.push(n);
             }
         }

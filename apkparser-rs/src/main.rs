@@ -186,7 +186,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
         if args.permission {
             if let Some(perms) = apk.get_permissions() {
-                println!("  permissions (AOSP): {} requested", perms.permissions.len());
+                println!(
+                    "  permissions (AOSP): {} requested",
+                    perms.permissions.len()
+                );
                 if args.verbose {
                     for p in perms.get_requested_aosp_permissions() {
                         println!("    - {}", p);

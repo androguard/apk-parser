@@ -45,9 +45,10 @@ pub fn extract_first_certificate_from_pkcs7(pkcs7_bytes: &[u8]) -> Result<Option
             use pkcs7::signer_info::SignerIdentifier;
             match &s.sid {
                 SignerIdentifier::IssuerAndSerialNumber(ias) => {
-                    let issuer_der = ias.name.to_der().map_err(|e| {
-                        crate::error::Error::Parse(format!("issuer to_der: {}", e))
-                    })?;
+                    let issuer_der = ias
+                        .name
+                        .to_der()
+                        .map_err(|e| crate::error::Error::Parse(format!("issuer to_der: {}", e)))?;
                     let serial = ias.serial_number.as_bytes();
                     (Some(issuer_der), Some(serial.to_vec()))
                 }
@@ -58,16 +59,21 @@ pub fn extract_first_certificate_from_pkcs7(pkcs7_bytes: &[u8]) -> Result<Option
     };
     for cert_choice in certificates.iter() {
         let cert_der: Vec<u8> = match cert_choice {
-            CertificateChoices::Certificate(c) => c.to_der().map_err(|e| {
-                crate::error::Error::Parse(format!("cert to_der: {}", e))
-            })?,
+            CertificateChoices::Certificate(c) => c
+                .to_der()
+                .map_err(|e| crate::error::Error::Parse(format!("cert to_der: {}", e)))?,
             _ => continue,
         };
-        if let (Some(ref issuer_der), Some(ref serial)) = (issuer_der_opt.as_ref(), serial_opt.as_ref()) {
-            if let Ok((_, cert)) = x509_parser::prelude::X509Certificate::from_der(cert_der.as_slice()) {
+        if let (Some(ref issuer_der), Some(ref serial)) =
+            (issuer_der_opt.as_ref(), serial_opt.as_ref())
+        {
+            if let Ok((_, cert)) =
+                x509_parser::prelude::X509Certificate::from_der(cert_der.as_slice())
+            {
                 let cert_serial_raw: &[u8] = cert.tbs_certificate.raw_serial();
                 let cert_issuer_raw: &[u8] = cert.tbs_certificate.issuer.as_raw();
-                if cert_issuer_raw == issuer_der.as_slice() && cert_serial_raw == serial.as_slice() {
+                if cert_issuer_raw == issuer_der.as_slice() && cert_serial_raw == serial.as_slice()
+                {
                     return Ok(Some(cert_der));
                 }
             }

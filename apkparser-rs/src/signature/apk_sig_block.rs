@@ -28,7 +28,8 @@ fn find_eocd(data: &[u8]) -> Result<(u32, u32)> {
             }
             let comment_len = {
                 let mut c = Cursor::new(&data[pos + 20..]);
-                c.read_u16::<LittleEndian>().map_err(|e| crate::error::Error::Io(e))?
+                c.read_u16::<LittleEndian>()
+                    .map_err(|e| crate::error::Error::Io(e))?
             } as usize;
             if pos + 22 + comment_len == len {
                 let mut c = Cursor::new(&data[pos + 4..]);

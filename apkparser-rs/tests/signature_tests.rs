@@ -23,18 +23,25 @@ fn test_apk_v1_only_signed() {
     let apk = std::fs::read(&apk_path).unwrap();
     let mut apk = Apk::from_bytes(
         &apk,
-        ApkOptions::default()
-            .with_axml(true)
-            .with_signature(true),
+        ApkOptions::default().with_axml(true).with_signature(true),
     )
     .unwrap();
     let sig = apk.get_signature_mut().unwrap();
     assert!(sig.is_signed_v1());
     assert!(!sig.is_signed_v2());
     assert!(sig.is_signed());
-    assert_eq!(sig.get_certificates_der_v2().unwrap(), vec![] as Vec<Vec<u8>>);
-    assert_eq!(sig.get_signature_name().as_deref(), Some("META-INF/CERT.RSA"));
-    assert_eq!(sig.get_signature_names(), vec!["META-INF/CERT.RSA".to_string()]);
+    assert_eq!(
+        sig.get_certificates_der_v2().unwrap(),
+        vec![] as Vec<Vec<u8>>
+    );
+    assert_eq!(
+        sig.get_signature_name().as_deref(),
+        Some("META-INF/CERT.RSA")
+    );
+    assert_eq!(
+        sig.get_signature_names(),
+        vec!["META-INF/CERT.RSA".to_string()]
+    );
     let cert_der = sig
         .get_certificate_der(sig.get_signature_name().as_deref().unwrap())
         .unwrap();
@@ -127,16 +134,17 @@ fn test_apk_v2_signature() {
     let apk = std::fs::read(&apk_path).unwrap();
     let mut apk = Apk::from_bytes(
         &apk,
-        ApkOptions::default()
-            .with_axml(true)
-            .with_signature(true),
+        ApkOptions::default().with_axml(true).with_signature(true),
     )
     .unwrap();
     let sig = apk.get_signature_mut().unwrap();
     assert!(sig.is_signed_v1());
     assert!(sig.is_signed_v2());
     assert!(sig.is_signed());
-    assert_eq!(sig.get_signature_name().as_deref(), Some("META-INF/ANDROGUA.RSA"));
+    assert_eq!(
+        sig.get_signature_name().as_deref(),
+        Some("META-INF/ANDROGUA.RSA")
+    );
     let certs_v2 = sig.get_certificates_der_v2().unwrap();
     assert_eq!(certs_v2.len(), 1);
     let cert_v1 = sig
