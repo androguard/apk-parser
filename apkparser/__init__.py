@@ -9,7 +9,7 @@ import magic
 from apkparser.helper.logging import LOGGER
 from apkparser.zip import headers
 from apkparser.signature import APKSignature
-from apkparser.utils import is_android_raw
+from apkparser.utils import is_android_raw, unwrap_apkm_to_apk_bytes
 from apkparser.permissions import Permissions
 
 from axml.axml import AXMLPrinter, namespace
@@ -40,6 +40,13 @@ class APK(object):
         raw: io.BytesIO,
         options: dict[str, bool] = {},
     ):
+        data = raw.read()
+        raw.seek(0)
+        # APKM (APKMirror split container) → analyze base.apk
+        if is_android_raw(data) == "APKM":
+            data = unwrap_apkm_to_apk_bytes(data)
+            raw = io.BytesIO(data)
+
         self._raw = raw
 
         self.valid_apk: boolean = False
@@ -52,7 +59,7 @@ class APK(object):
         self._files = {}
         self.files_crc32 = {}
 
-        self._sha256 = hashlib.sha256(raw.read()).hexdigest()
+        self._sha256 = hashlib.sha256(data).hexdigest()
         # Set the filename to something sane
         self.filename = "raw_apk_sha256:{}".format(self._sha256)
 
@@ -147,7 +154,7 @@ class APK(object):
         if (
             ("Zip" in orig)
             or ('(JAR)' in orig)
-            and is_android_raw(buffer) == 'APK'
+            and is_android_raw(buffer) in ('APK', 'APKM')
         ):
             return "Android application package file"
 

@@ -1,6 +1,7 @@
 //! Android manifest parsing (binary AXML) - mirrors AXMLPrinter usage.
 
 use std::io::Cursor;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use crate::error::{Error, Result};
 
@@ -17,7 +18,20 @@ pub struct AndroidManifest {
 }
 
 /// Parse binary AndroidManifest.xml bytes (AXML format) using axmldecoder.
+///
+/// `axmldecoder` 0.2 asserts that element namespaces are `None`; some real APKs
+/// (e.g. InsecureBankv2) put the Android URI on the element and panic. Catch that
+/// so callers can fall back to `axml-parser` / raw bytes.
 pub fn parse_manifest(axml_bytes: &[u8]) -> Result<AndroidManifest> {
+    match catch_unwind(AssertUnwindSafe(|| parse_manifest_inner(axml_bytes))) {
+        Ok(result) => result,
+        Err(_) => Err(Error::Parse(
+            "AXML: axmldecoder panicked (unsupported namespace on element)".into(),
+        )),
+    }
+}
+
+fn parse_manifest_inner(axml_bytes: &[u8]) -> Result<AndroidManifest> {
     let mut cursor = Cursor::new(axml_bytes);
     let doc = axmldecoder::parse(&mut cursor).map_err(|e| Error::Parse(format!("AXML: {}", e)))?;
     let mut manifest = AndroidManifest::default();

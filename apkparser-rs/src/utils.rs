@@ -12,14 +12,25 @@ pub fn read_uint32_le<R: Read>(reader: &mut R) -> Result<u32> {
         .map_err(|e| crate::error::Error::Io(e))
 }
 
-/// Returns the type of file for common Android formats (APK, DEX, DEY, AXML, ARSC).
-/// Mirrors Python `is_android_raw`.
+/// Returns the type of file for common Android formats (APK, APKM, DEX, DEY, AXML, ARSC).
+/// Mirrors Python `is_android_raw`, extended with APKM (APKMirror split containers).
 pub fn is_android_raw(raw: &[u8]) -> Option<&'static str> {
     if raw.len() < 4 {
         return None;
     }
-    if raw.starts_with(b"PK") && raw.windows(18).any(|w| w == b"AndroidManifest.xml") {
-        return Some("APK");
+    if raw.starts_with(b"PK") {
+        // Prefer ZIP entry inspection so nested `AndroidManifest.xml` bytes inside
+        // `base.apk` do not mis-classify an APKM as a plain APK.
+        if crate::apkm::looks_like_apkm(raw) {
+            return Some("APKM");
+        }
+        if crate::apkm::is_plain_apk(raw) {
+            return Some("APK");
+        }
+        // Fast fallback for truncated / odd ZIPs that still embed the manifest name.
+        if raw.windows(18).any(|w| w == b"AndroidManifest.xml") {
+            return Some("APK");
+        }
     }
     if raw.starts_with(b"dex") {
         return Some("DEX");

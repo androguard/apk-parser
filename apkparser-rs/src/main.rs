@@ -1,6 +1,6 @@
 //! CLI to test the apkparser library with APK files.
 
-use apkparser::{Apk, ApkOptions};
+use apkparser::{is_android_raw, looks_like_apkm, Apk, ApkOptions, ApkmArchive};
 use clap::Parser;
 use sha2::Digest;
 use std::path::PathBuf;
@@ -8,10 +8,10 @@ use std::process;
 
 #[derive(Parser, Debug)]
 #[command(name = "apkparser")]
-#[command(about = "Parse and inspect Android APK files", long_about = None)]
+#[command(about = "Parse and inspect Android APK / APKM files", long_about = None)]
 struct Args {
-    /// APK file path(s)
-    #[arg(required = true, value_name = "APK")]
+    /// APK or APKM file path(s)
+    #[arg(required = true, value_name = "PACKAGE")]
     apks: Vec<PathBuf>,
 
     /// Parse AndroidManifest.xml (package, version, permissions)
@@ -26,9 +26,17 @@ struct Args {
     #[arg(long, default_value_t = false)]
     permission: bool,
 
-    /// List all files inside the APK
+    /// List all files inside the APK (base APK when input is APKM)
     #[arg(short, long)]
     list_files: bool,
+
+    /// For APKM inputs: list base + split APK entries
+    #[arg(long)]
+    list_splits: bool,
+
+    /// For APKM inputs: extract base + split APKs to this directory
+    #[arg(long, value_name = "DIR")]
+    extract_apks: Option<PathBuf>,
 
     /// Show certificate SHA-256 fingerprints
     #[arg(long)]
@@ -58,6 +66,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let data = std::fs::read(path)?;
+        let kind = is_android_raw(&data).unwrap_or("unknown");
+        println!("=== {} ===", path.display());
+        println!("  kind: {}", kind);
+
+        if looks_like_apkm(&data) {
+            let archive = match ApkmArchive::from_bytes(&data) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("Error parsing APKM {}: {}", path.display(), e);
+                    process::exit(1);
+                }
+            };
+            println!("  apkm base: {}", archive.base_name());
+            println!("  apkm splits: {}", archive.split_names().len());
+            if args.list_splits || args.verbose {
+                for e in archive.entries() {
+                    println!("    [{:?}] {} ({} bytes)", e.kind, e.name, e.size);
+                }
+            }
+            if let Some(info) = archive.info_json() {
+                if args.verbose {
+                    println!("  info.json: {}", info);
+                }
+            }
+            if let Some(ref dir) = args.extract_apks {
+                let written = archive.extract_apks_to(dir)?;
+                println!("  extracted {} apk(s) to {}", written.len(), dir.display());
+            }
+        }
+
         let mut apk = match Apk::from_bytes(&data, options) {
             Ok(a) => a,
             Err(e) => {
@@ -66,7 +104,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-        println!("=== {} ===", path.display());
         println!("  is_apk: {}", apk.is_apk());
 
         let files = apk.get_files();

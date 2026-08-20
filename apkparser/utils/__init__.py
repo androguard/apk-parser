@@ -23,7 +23,7 @@ def is_android(filename: str) -> str:
     Return the type of the file
 
     :param filename: the filename
-    :returns: "APK", "DEX", None
+    :returns: "APK", "APKM", "DEX", None
     """
     if not filename:
         return None
@@ -49,8 +49,11 @@ def is_android_raw(raw: bytes) -> str:
     # classes.dex and resources.arsc are not required!
     # if raw[0:2] == b"PK" and b'META-INF/MANIFEST.MF' in raw:
     # TODO this check might be still invalid. A ZIP file with stored APK inside would match as well.
-    # probably it would be better to rewrite this and add more sanity checks.
-    if raw[0:2] == b"PK" and b'AndroidManifest.xml' in raw:
+    # Prefer APKM (split container) before plain APK: nested base.apk often contains
+    # the string AndroidManifest.xml in its payload.
+    if raw[0:2] == b"PK" and _looks_like_apkm(raw):
+        val = "APKM"
+    elif raw[0:2] == b"PK" and b'AndroidManifest.xml' in raw:
         val = "APK"
         # check out
     elif raw[0:3] == b"dex":
@@ -63,3 +66,41 @@ def is_android_raw(raw: bytes) -> str:
         val = "ARSC"
 
     return val
+
+
+def _looks_like_apkm(raw: bytes) -> bool:
+    """True for APKMirror-style ZIP with base.apk and no root AndroidManifest.xml."""
+    try:
+        import zipfile
+        import io
+        zf = zipfile.ZipFile(io.BytesIO(raw))
+        names = zf.namelist()
+    except Exception:
+        return False
+    if "AndroidManifest.xml" in names:
+        return False
+    lower_files = [n.rsplit("/", 1)[-1].lower() for n in names]
+    if "base.apk" in lower_files:
+        return True
+    apks = [n for n in names if n.rsplit("/", 1)[-1].lower().endswith(".apk")]
+    return len(apks) >= 1 and "AndroidManifest.xml" not in names
+
+
+def unwrap_apkm_to_apk_bytes(raw: bytes) -> bytes:
+    """If `raw` is APKM, return base.apk bytes; if APK, return raw unchanged."""
+    if is_android_raw(raw) != "APKM":
+        return raw
+    import zipfile
+    import io
+    zf = zipfile.ZipFile(io.BytesIO(raw))
+    names = zf.namelist()
+    base = next(
+        (n for n in names if n.rsplit("/", 1)[-1].lower() == "base.apk"),
+        None,
+    )
+    if base is None:
+        apks = [n for n in names if n.rsplit("/", 1)[-1].lower().endswith(".apk")]
+        if len(apks) != 1:
+            raise BrokenAPKError("APKM missing base.apk")
+        base = apks[0]
+    return zf.read(base)

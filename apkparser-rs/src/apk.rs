@@ -1,5 +1,6 @@
 //! Main APK parser - mirrors apkparser.APK.
 
+use crate::apkm::{self, ApkmArchive};
 use crate::error::Result;
 use crate::manifest::{parse_manifest, AndroidManifest};
 use crate::permissions::{load_permissions, Permissions};
@@ -59,8 +60,16 @@ pub struct Apk {
 
 impl Apk {
     /// Create APK parser from raw bytes.
+    ///
+    /// If `apk` is an APKM container, automatically unwraps to the base APK so
+    /// callers can treat APKM like a normal package for manifest / DEX / signature.
     pub fn from_bytes(apk: &[u8], options: ApkOptions) -> Result<Self> {
-        let data = apk.to_vec();
+        let data = apkm::unwrap_to_apk_bytes(apk)?;
+        Self::from_apk_bytes(data, options)
+    }
+
+    /// Like [`from_bytes`], but never unwraps APKM — `data` must already be a plain APK.
+    pub fn from_apk_bytes(data: Vec<u8>, options: ApkOptions) -> Result<Self> {
         let zip = ZipEntry::parse(&data)?;
         let mut signature = None;
         let mut manifest = None;
@@ -98,6 +107,19 @@ impl Apk {
             permissions,
             permissions_base_path: None,
         })
+    }
+
+    /// Open from path; accepts `.apk` or `.apkm` (APKM → base APK).
+    pub fn from_path(path: &Path, options: ApkOptions) -> Result<Self> {
+        let raw = std::fs::read(path)?;
+        Self::from_bytes(&raw, options)
+    }
+
+    /// Open an APKM and return `(Apk for base, ApkmArchive)` for split access.
+    pub fn from_apkm(raw: &[u8], options: ApkOptions) -> Result<(Self, ApkmArchive)> {
+        let archive = ApkmArchive::from_bytes(raw)?;
+        let base = archive.base_apk_bytes()?;
+        Ok((Self::from_apk_bytes(base, options)?, archive))
     }
 
     /// Return true if this looks like an APK (ZIP with AndroidManifest.xml).
