@@ -24,6 +24,11 @@ log = "0.4"
 clap = { version = "4.4", features = ["derive"] }
 hex = "0.4"
 sha2 = "0.10"
+rsa = { version = "0.9", features = ["sha2"] }
+p256 = { version = "0.13", features = ["ecdsa"] }
+ecdsa = { version = "0.16", features = ["signing"] }
+rcgen = "0.13"
+rand = "0.8"
 
 [dev-dependencies]
 hex = "0.4"
