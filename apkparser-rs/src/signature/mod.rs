@@ -10,9 +10,8 @@ pub use v2::{parse_v2_signing_block, ApkV2SignedData, ApkV2Signer};
 pub use v3::{parse_v3_signing_block, ApkV3SignedData, ApkV3Signer};
 
 use apk_sig_block::{parse_apk_sig_block, APK_SIG_KEY_V2_SIGNATURE, APK_SIG_KEY_V3_SIGNATURE};
+use crate::zip::ZipEntry;
 use std::collections::HashMap;
-use std::io::Cursor;
-use zip::ZipArchive;
 
 /// APK signature parser: parses v1 (JAR), v2, and v3 signatures from an APK.
 pub struct ApkSignature {
@@ -28,17 +27,43 @@ pub struct ApkSignature {
 impl ApkSignature {
     pub fn from_bytes(apk: &[u8]) -> crate::Result<Self> {
         let (is_signed_v2, is_signed_v3, v2_blocks) = parse_apk_sig_block(apk)?;
-        let mut zip_names = Vec::new();
+        let zip = ZipEntry::parse(apk)?;
+        Self::from_zip_and_blocks(zip, is_signed_v2, is_signed_v3, v2_blocks)
+    }
+
+    /// Build from an already-parsed [`ZipEntry`] (avoids re-reading the archive).
+    pub fn from_zip(apk: &[u8], zip: &ZipEntry) -> crate::Result<Self> {
+        let (is_signed_v2, is_signed_v3, v2_blocks) = parse_apk_sig_block(apk)?;
+        let zip_names = zip.namelist().to_vec();
         let mut zip_file_contents: HashMap<String, Vec<u8>> = HashMap::new();
-        let cursor = Cursor::new(apk);
-        let mut archive = ZipArchive::new(cursor).map_err(crate::error::Error::Zip)?;
-        for i in 0..archive.len() {
-            let mut file = archive.by_index(i).map_err(crate::error::Error::Zip)?;
-            let name = file.name().to_string();
-            let mut data = Vec::new();
-            std::io::copy(&mut file, &mut data).map_err(crate::error::Error::Io)?;
-            zip_names.push(name.clone());
-            zip_file_contents.insert(name, data);
+        for name in &zip_names {
+            if let Ok(data) = zip.read_to_vec(name) {
+                zip_file_contents.insert(name.clone(), data);
+            }
+        }
+        Ok(Self {
+            is_signed_v2,
+            is_signed_v3,
+            v2_blocks,
+            v2_signing_data: None,
+            v3_signing_data: None,
+            zip_names,
+            zip_file_contents,
+        })
+    }
+
+    fn from_zip_and_blocks(
+        zip: ZipEntry,
+        is_signed_v2: bool,
+        is_signed_v3: bool,
+        v2_blocks: HashMap<u32, Vec<u8>>,
+    ) -> crate::Result<Self> {
+        let zip_names = zip.namelist().to_vec();
+        let mut zip_file_contents: HashMap<String, Vec<u8>> = HashMap::new();
+        for name in &zip_names {
+            if let Ok(data) = zip.read_to_vec(name) {
+                zip_file_contents.insert(name.clone(), data);
+            }
         }
         Ok(Self {
             is_signed_v2,

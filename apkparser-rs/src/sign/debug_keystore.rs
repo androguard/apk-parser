@@ -1,23 +1,58 @@
 //! Debug signing key material (RSA-2048).
 
-use rand::rngs::OsRng;
-use rcgen::{CertificateParams, DnType, IsCa, KeyPair, PKCS_RSA_SHA256};
-use rsa::pkcs8::{EncodePrivateKey, LineEnding};
-use rsa::RsaPrivateKey;
-
 use super::{KeystoreMaterial, SignError, SignResult};
+
+/// Embedded Android Debug RSA key (used on WASM and as ephemeral fallback).
+#[allow(dead_code)]
+const EMBEDDED_DEBUG_KEY: &[u8] = include_bytes!("embedded_debug.key");
 
 /// RSA-2048 debug key, cached under `~/.cache/apk-patch/` so rebuilds share a cert.
 ///
 /// ECDSA alone is not enough: Android verifies the APK against every SDK from the
 /// manifest `minSdkVersion` upward, so low-minSdk apps need RSA.
 pub fn generate_debug_keystore() -> SignResult<KeystoreMaterial> {
-    let cache = debug_key_cache_path();
-    if let Ok(bytes) = std::fs::read(&cache) {
-        if let Ok(mat) = deserialize_keystore(&bytes) {
-            return Ok(mat);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let cache = debug_key_cache_path();
+        if let Ok(bytes) = std::fs::read(&cache) {
+            if let Ok(mat) = deserialize_keystore(&bytes) {
+                return Ok(mat);
+            }
         }
+
+        let mat = generate_debug_keystore_native()?;
+        if let Some(parent) = cache.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(&cache, serialize_keystore(&mat));
+        return Ok(mat);
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        generate_debug_keystore_ephemeral()
+    }
+}
+
+/// Generate/load a debug key without requiring a writable home cache.
+///
+/// On WASM this returns the embedded fixed debug key (no `rcgen`/`ring`).
+pub fn generate_debug_keystore_ephemeral() -> SignResult<KeystoreMaterial> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        generate_debug_keystore_native()
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        deserialize_keystore(EMBEDDED_DEBUG_KEY)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn generate_debug_keystore_native() -> SignResult<KeystoreMaterial> {
+    use rand::rngs::OsRng;
+    use rcgen::{CertificateParams, DnType, IsCa, KeyPair, PKCS_RSA_SHA256};
+    use rsa::pkcs8::{EncodePrivateKey, LineEnding};
+    use rsa::RsaPrivateKey;
 
     let private_key = RsaPrivateKey::new(&mut OsRng, 2048)
         .map_err(|e| SignError::Signing(format!("RSA generate: {e}")))?;
@@ -41,24 +76,29 @@ pub fn generate_debug_keystore() -> SignResult<KeystoreMaterial> {
         .self_signed(&key_pair)
         .map_err(|e| SignError::Signing(format!("self_signed: {e}")))?;
 
-    let mat = KeystoreMaterial {
+    Ok(KeystoreMaterial {
         private_key_der: key_pair.serialize_der(),
         certificate_der: cert.der().to_vec(),
         is_ec: false,
-    };
-
-    if let Some(parent) = cache.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let _ = std::fs::write(&cache, serialize_keystore(&mat));
-    Ok(mat)
+    })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn debug_key_cache_path() -> std::path::PathBuf {
     let base = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("."));
     base.join(".cache/apk-patch/debug-signing.key")
+}
+
+/// Serialize keystore for external caches (e.g. IndexedDB).
+pub fn serialize_debug_keystore(mat: &KeystoreMaterial) -> Vec<u8> {
+    serialize_keystore(mat)
+}
+
+/// Deserialize keystore from [`serialize_debug_keystore`].
+pub fn deserialize_debug_keystore(bytes: &[u8]) -> SignResult<KeystoreMaterial> {
+    deserialize_keystore(bytes)
 }
 
 fn serialize_keystore(mat: &KeystoreMaterial) -> Vec<u8> {

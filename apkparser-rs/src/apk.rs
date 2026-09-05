@@ -63,8 +63,13 @@ impl Apk {
     ///
     /// If `apk` is an APKM container, automatically unwraps to the base APK so
     /// callers can treat APKM like a normal package for manifest / DEX / signature.
+    /// Other ZIPs (including signature-only or evasion-malformed APKs) are parsed as-is.
     pub fn from_bytes(apk: &[u8], options: ApkOptions) -> Result<Self> {
-        let data = apkm::unwrap_to_apk_bytes(apk)?;
+        let data = if apkm::looks_like_apkm(apk) {
+            ApkmArchive::from_bytes(apk)?.base_apk_bytes()?
+        } else {
+            apk.to_vec()
+        };
         Self::from_apk_bytes(data, options)
     }
 
@@ -85,7 +90,7 @@ impl Apk {
         }
 
         if options.signature {
-            signature = Some(ApkSignature::from_bytes(&data)?);
+            signature = Some(ApkSignature::from_zip(&data, &zip)?);
         }
 
         if options.permission {

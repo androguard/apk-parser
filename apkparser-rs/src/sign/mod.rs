@@ -7,6 +7,9 @@ mod zipalign;
 
 use sha2::{Digest, Sha256};
 
+pub use debug_keystore::{
+    deserialize_debug_keystore, generate_debug_keystore_ephemeral, serialize_debug_keystore,
+};
 pub use v1_write::sign_v1;
 pub use v2_write::{sign_v2, sign_v2_v3};
 pub use zipalign::zipalign;
@@ -55,8 +58,15 @@ pub struct KeystoreMaterial {
 
 impl KeystoreMaterial {
     /// Generate a debug signing key (RSA-2048, self-signed).
+    ///
+    /// On native targets this caches under `~/.cache/apk-patch/`.
     pub fn debug() -> Self {
         debug_keystore::generate_debug_keystore().expect("debug keystore generation")
+    }
+
+    /// Generate a debug key without touching the filesystem (WASM-safe).
+    pub fn debug_ephemeral() -> Self {
+        debug_keystore::generate_debug_keystore_ephemeral().expect("debug keystore generation")
     }
 }
 

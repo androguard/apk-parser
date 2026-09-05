@@ -9,7 +9,7 @@ Rust port of the Python `apkparser` library. Parses Android APK files: signature
   - `lib.rs` – Re-exports and public API.
   - `error.rs` – `Error`, `BrokenAPKError`, `Result`, `FileNotPresent`.
   - `utils.rs` – `is_android_raw`, `is_android`, `read_uint32_le`.
-  - `zip.rs` – `ZipEntry`: parse APK as ZIP, `namelist()`, `read(name)`.
+  - `zip.rs` – Lenient `ZipEntry` (skip Extra Field TLVs; tampered compression methods). Needed for malware APKs that break strict `zipfile`/`ZipFile` while still installing on Android ([Octo2 write-up](https://hatching.io/blog/triage-insights-ep4/)).
   - `signature/` – APK signature (v1, v2, v3): `ApkSignature`, signers, certs, public keys.
   - `manifest.rs` – Parse binary AndroidManifest.xml (axmldecoder): package, permissions, min/target SDK.
   - `permissions.rs` – Load AOSP permissions JSON by API level, `Permissions` helper.
