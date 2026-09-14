@@ -2,6 +2,7 @@
 
 pub mod apk;
 pub mod apkm;
+pub mod dex_entries;
 pub mod error;
 pub mod manifest;
 pub mod permissions;
@@ -9,6 +10,7 @@ pub mod sign;
 pub mod signature;
 pub mod utils;
 pub mod zip;
+pub mod zip64;
 pub mod zip_write;
 
 pub use apk::{Apk, ApkOptions};
@@ -23,4 +25,5 @@ pub use manifest::{parse_manifest, AndroidManifest};
 pub use permissions::{load_permissions, PermissionInfo, Permissions, PermissionsMap};
 pub use signature::ApkSignature;
 pub use utils::{is_android, is_android_raw, read_uint32_le};
-pub use zip::ZipEntry;
+pub use dex_entries::{dex_entries, iter_logical_dexes, logical_dex_offsets};
+pub use zip::{CentralEntry, ZipEntry, ZipIndex};

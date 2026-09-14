@@ -80,6 +80,7 @@ dependencies = [
  "hex",
  "log",
  "md5",
+ "memchr",
  "p256",
  "pkcs7",
  "rand",

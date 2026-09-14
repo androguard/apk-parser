@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 byteorder = "1.5"
 thiserror = "1.0"
+memchr = "2"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 x509-parser = "0.16"
