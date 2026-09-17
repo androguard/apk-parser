@@ -1,138 +1,171 @@
 # apkparser (Rust)
 
-Rust port of the Python `apkparser` library. Parses Android APK files: signature (v1/JAR, v2, v3), ZIP contents, manifest (AXML), and permissions.
+Rust port of the Python [`apkparser`](../README.md) library. Parses Android APK / APKM files: lenient ZIP, signature (v1/JAR, v2, v3), binary manifest (AXML), and permissions.
 
-## Layout
+## Quick start
 
-- **`Cargo.toml`** – Crate root (all Rust code under `apkparser-rs/`).
-- **`src/`**
-  - `lib.rs` – Re-exports and public API.
-  - `error.rs` – `Error`, `BrokenAPKError`, `Result`, `FileNotPresent`.
-  - `utils.rs` – `is_android_raw`, `is_android`, `read_uint32_le`.
-  - `zip.rs` – Lenient `ZipEntry` (skip Extra Field TLVs; tampered compression methods). Needed for malware APKs that break strict `zipfile`/`ZipFile` while still installing on Android ([Octo2 write-up](https://hatching.io/blog/triage-insights-ep4/)).
-  - `signature/` – APK signature (v1, v2, v3): `ApkSignature`, signers, certs, public keys.
-  - `manifest.rs` – Parse binary AndroidManifest.xml (axmldecoder): package, permissions, min/target SDK.
-  - `permissions.rs` – Load AOSP permissions JSON by API level, `Permissions` helper.
-  - `apkm.rs` – APKM (APKMirror split container): detect, list splits, extract base APK.
-  - `apk.rs` – Main `Apk` struct and `ApkOptions` (AXML, SIGNATURE, PERMISSION). `Apk::from_bytes` auto-unwraps APKM → base APK.
-  - `main.rs` – CLI binary to inspect APK files from the command line.
-- **`tests/`** – Integration tests (signature_tests.rs, apk_original_tests.rs). Test data: `../tests/data/APK/` (repo root).
-
-## APKM
-
-`.apkm` files are ZIP containers (`base.apk` + `split_config.*.apk` + optional `info.json`). Detection and helpers:
-
-```rust
-use apkparser::{looks_like_apkm, unwrap_to_apk_bytes, ApkmArchive, Apk, ApkOptions};
-
-// One-shot: get analyzable base APK bytes
-let apk_bytes = unwrap_to_apk_bytes(&raw)?;
-
-// Or open as Apk (auto-unwraps APKM)
-let apk = Apk::from_bytes(&raw, ApkOptions::default().with_axml(true))?;
-
-// Full container access
-let archive = ApkmArchive::from_bytes(&raw)?;
-let base = archive.base_apk_bytes()?;
-let splits = archive.split_names();
-archive.extract_apks_to(std::path::Path::new("./out"))?;
+```bash
+cd apkparser-rs
+cargo build --release
+cargo run --bin apkparser -- ../tests/data/APK/TestActivity.apk --fingerprints -v
 ```
 
-`is_android_raw` returns `"APKM"` for these containers (and `"APK"` for plain packages).
+Real CLI output:
 
-## Usage
+```text
+=== ../tests/data/APK/TestActivity.apk ===
+  kind: APK
+  is_apk: true
+  files: 10 entries
+  manifest:
+    package: tests.androguard
+    versionCode: 1
+    versionName: 1.0
+    minSdkVersion: 9
+    targetSdkVersion: 16
+  signature:
+    v1 (JAR): true
+    v2: false
+    v3: false
+    v1 entry: META-INF/CERT.RSA
+    v1 cert SHA-256: 6f5c31608f1f9e285eb6343c7c8af07de81c1fb2148b5349bec906444144576d
+```
+
+## Library examples
+
+All snippets use `../tests/data/APK/TestActivity.apk` from the repo root.
+
+### Load & inspect
 
 ```rust
 use apkparser::{Apk, ApkOptions};
 
-let apk = std::fs::read("app.apk")?; // or app.apkm
-let mut apk = Apk::from_bytes(&apk, ApkOptions::default()
-    .with_axml(true)
-    .with_signature(true)
-    .with_permission(true))?;
+fn main() -> apkparser::Result<()> {
+    let bytes = std::fs::read("../tests/data/APK/TestActivity.apk")?;
+    let mut apk = Apk::from_bytes(
+        &bytes,
+        ApkOptions::default()
+            .with_axml(true)
+            .with_signature(true),
+    )?;
 
-// Files
-let files = apk.get_files();
-let manifest_bytes = apk.get_file("AndroidManifest.xml")?;
+    assert!(apk.is_apk());
+    assert_eq!(apk.get_files().len(), 10);
 
-// Parsed manifest
-if let Some(m) = apk.get_android_manifest() {
-    println!("package: {:?}", m.package);
-    println!("permissions: {:?}", m.uses_permissions);
-}
+    let m = apk.get_android_manifest().unwrap();
+    assert_eq!(m.package.as_deref(), Some("tests.androguard"));
+    assert_eq!(m.min_sdk_version, Some(9));
+    assert_eq!(m.target_sdk_version, Some(16));
+    assert_eq!(m.version_code, Some(1));
+    assert_eq!(m.version_name.as_deref(), Some("1.0"));
 
-// Signature
-if let Some(sig) = apk.get_signature_mut() {
-    if sig.is_signed_v1() {
-        let name = sig.get_signature_name().unwrap();
-        let cert = sig.get_certificate_der(&name)?;
-    }
-    let certs_v2 = sig.get_certificates_der_v2()?;
-    let certs_v3 = sig.get_certificates_der_v3()?;
-}
+    let dex = apk.get_file("classes.dex")?;
+    assert!(dex.starts_with(b"dex\n"));
 
-// Permissions (when PERMISSION option set)
-if let Some(perms) = apk.get_permissions() {
-    let aosp = perms.get_requested_aosp_permissions();
+    let sig = apk.get_signature_mut().unwrap();
+    assert!(sig.is_signed_v1());
+    assert!(!sig.is_signed_v2());
+    assert_eq!(sig.get_signature_name().as_deref(), Some("META-INF/CERT.RSA"));
+    let cert = sig.get_certificate_der("META-INF/CERT.RSA")?.unwrap();
+    // SHA-256: 6f5c31608f1f9e285eb6343c7c8af07de81c1fb2148b5349bec906444144576d
+    assert_eq!(cert.len(), 489);
+    Ok(())
 }
 ```
 
-## CLI
+### v1 + v2 signed APK
 
-A command-line tool is included to test the library on APK / APKM files:
+```rust
+use apkparser::{Apk, ApkOptions};
+
+let bytes = std::fs::read("../tests/data/APK/TestActivity_signed_both.apk")?;
+let mut apk = Apk::from_bytes(
+    &bytes,
+    ApkOptions::default().with_axml(true).with_signature(true),
+)?;
+let sig = apk.get_signature_mut().unwrap();
+assert!(sig.is_signed_v1() && sig.is_signed_v2());
+assert_eq!(sig.get_signature_name().as_deref(), Some("META-INF/ANDROGUA.RSA"));
+let certs_v2 = sig.get_certificates_der_v2()?;
+assert_eq!(certs_v2.len(), 1);
+```
+
+### Permissions
+
+```rust
+use apkparser::{Apk, ApkOptions};
+
+let bytes = std::fs::read("../tests/data/APK/a2dp.Vol_137.apk")?;
+let apk = Apk::from_bytes(
+    &bytes,
+    ApkOptions::default().with_axml(true).with_permission(true),
+)?;
+let m = apk.get_android_manifest().unwrap();
+assert_eq!(m.package.as_deref(), Some("a2dp.Vol"));
+assert!(m.uses_permissions.contains(&"android.permission.BLUETOOTH".into()));
+```
+
+### APKM
+
+```rust
+use apkparser::{looks_like_apkm, unwrap_to_apk_bytes, ApkmArchive, Apk, ApkOptions};
+
+let raw = std::fs::read("app.apkm")?;
+assert!(looks_like_apkm(&raw));
+let base = unwrap_to_apk_bytes(&raw)?;
+let apk = Apk::from_bytes(&raw, ApkOptions::default().with_axml(true))?; // auto-unwraps
+
+let archive = ApkmArchive::from_bytes(&raw)?;
+archive.extract_apks_to(std::path::Path::new("./out"))?;
+```
 
 ```bash
-cd apkparser-rs
-cargo build --bin apkparser
-# or
-cargo run --bin apkparser -- path/to/app.apk
-cargo run --bin apkparser -- path/to/app.apkm --list-splits
-cargo run --bin apkparser -- path/to/app.apkm --extract-apks ./out
+cargo run --bin apkparser -- app.apkm --list-splits
+cargo run --bin apkparser -- app.apkm --extract-apks ./out
 ```
 
-**Options:**
+## CLI options
 
 | Option | Description |
 |--------|-------------|
-| `PACKAGE...` | One or more APK / APKM file path(s) |
+| `PACKAGE...` | One or more APK / APKM path(s) |
 | `--axml` / `--no-axml` | Parse AndroidManifest.xml (default: true) |
 | `--signature` / `--no-signature` | Parse v1/v2/v3 signature (default: true) |
-| `--permission` | Load AOSP permissions (needs aosp_permissions data) |
-| `-l, --list-files` | List all entries inside the (base) APK |
+| `--permission` | Load AOSP permissions JSON |
+| `-l, --list-files` | List ZIP entries (base APK if APKM) |
 | `--list-splits` | List APKM base + split entries |
-| `--extract-apks DIR` | Extract APKM `*.apk` members to DIR |
-| `--fingerprints` | Print certificate SHA-256 fingerprints |
+| `--extract-apks DIR` | Extract APKM `*.apk` members |
+| `--fingerprints` | Certificate SHA-256 fingerprints |
 | `-v, --verbose` | Verbose (e.g. list uses-permission) |
 
-**Examples:**
+## Layout
 
-```bash
-cargo run --bin apkparser -- app.apk
-cargo run --bin apkparser -- app.apk --fingerprints -l
-cargo run --bin apkparser -- app.apk --no-axml --list-files
-```
-
-## Build and test
-
-From repo root or from `apkparser-rs/`:
-
-```bash
-cd apkparser-rs
-cargo build
-cargo test
-```
-
-Test data is under `../tests/data/APK/` (repo root).
+- `src/lib.rs` — public API
+- `src/zip.rs` — lenient ZIP (malformed Extra Field / tampered methods; see [Octo2](https://hatching.io/blog/triage-insights-ep4/))
+- `src/signature/` — v1 / v2 / v3
+- `src/manifest.rs` — AXML via `axmldecoder`
+- `src/permissions.rs` — AOSP permissions by API level
+- `src/apkm.rs` — APKM containers
+- `src/apk.rs` — `Apk` + `ApkOptions`
+- `src/main.rs` — CLI
+- `tests/` — integration tests (`../tests/data/APK/`)
 
 ## Python parity
 
-| Python              | Rust                          |
-|---------------------|-------------------------------|
-| `apkparser.utils`   | `apkparser::utils`            |
-| `apkparser.zip`     | `apkparser::zip`              |
-| `apkparser.signature` | `apkparser::signature`     |
+| Python | Rust |
+|--------|------|
+| `APK`, `OPTION_*` | `Apk`, `ApkOptions` |
+| `apkparser.zip` | `apkparser::zip` |
+| `apkparser.signature` | `apkparser::signature` |
 | `apkparser.permissions` | `apkparser::permissions` |
-| `APK`, `OPTION_*`   | `Apk`, `ApkOptions`           |
-| AXML (axml package) | `axmldecoder` + `manifest`    |
+| `is_android_raw` | `is_android_raw` |
+| APKM helpers | `looks_like_apkm`, `unwrap_to_apk_bytes`, `ApkmArchive` |
 
-DEX parsing and full permission details (e.g. implied permissions) are not implemented.
+Full Python docs and side-by-side examples: [../README.md](../README.md).
+
+## Build and test
+
+```bash
+cargo build
+cargo test
+```

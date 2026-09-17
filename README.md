@@ -15,152 +15,333 @@
 
 At its core, every APK is a fortress built on a simple foundation: the ZIP archive. apk-parser is the key to that fortress.
 
-This is a standalone, dependency-free, native Python library designed to do one thing and do it exceptionally well: deconstruct the fundamental structure of an Android Application Package (APK). It is a foundational pillar of the new Androguard Ecosystem, providing robust, reliable, and performant access to the raw contents of any APK file.
+This is a standalone library to deconstruct Android Application Packages (APK / APKM): ZIP structure, binary `AndroidManifest.xml`, signatures (v1/v2/v3), and permissions. It is a foundational pillar of the new Androguard Ecosystem.
+
+Available as:
+
+- **Python** — `apkparser` (PyPI: [`apkparser-ag`](https://pypi.org/project/apkparser-ag/))
+- **Rust** — [`apkparser-rs/`](./apkparser-rs/) (library + CLI)
+
+Both use a **lenient ZIP reader** (skip Extra Field TLV validation; tolerate tampered compression methods) so malware-style APKs that still install on Android remain analyzable. See [Octo2 / Triage Insights](https://hatching.io/blog/triage-insights-ep4/).
 
 ### Philosophy
 
-Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk-parser has been uncoupled from the main analysis engine. It exists as an independent, lightweight, and highly portable tool. By focusing solely on the archive layer, it provides a stable and predictable interface for any tool that needs to peer inside an APK.
+Following the "Deconstruct to Reconstruct" philosophy of the new Androguard, apk-parser has been uncoupled from the main analysis engine. It exists as an independent, lightweight, and highly portable tool. By focusing on the archive layer, it provides a stable interface for any tool that needs to peer inside an APK.
 
 ### Key Features
 
-- Archive Integrity & Parsing: Reads the full structure of the APK's ZIP archive, including the central directory, without relying on external unzip commands.
-
-- File Extraction: Pull any file from the archive by its path, from classes.dex to raw resources in the res/ directory.
-
-- Manifest Access: Seamlessly locate and extract the binary AndroidManifest.xml file, ready to be passed to the axml library for decoding.
-
-- Signature & Metadata: Parses the META-INF directory to extract signature block files and certificate information, allowing for basic signature verification.
-
-- Pure & Pythonic: Written in native Python with zero external dependencies for maximum portability and a minimal footprint.
+- **Archive parsing** — full ZIP / central directory without shelling out to `unzip`
+- **File extraction** — any path (`classes.dex`, `res/`, …)
+- **Manifest** — binary AXML → package, SDK levels, permissions, components
+- **Signature & certificates** — v1 (JAR), v2, v3
+- **APKM** — APKMirror split containers (detect, unwrap `base.apk`, list / extract splits)
+- **Python + Rust** — same concepts in both languages
 
 ## Installation
 
+### Python
 
-If you would like to install it locally, please create a new venv to use it directly, and then:
-
-```
-$ git clone https://github.com/androguard/apk-parser.git
-$ pip install -e .
-```
-
-or directly via pypi:
-```
-$ pip install apkparser-ag
+```bash
+git clone https://github.com/androguard/apk-parser.git
+cd apk-parser
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
+# or: pip install apkparser-ag
 ```
 
-## Usage
+### Rust
 
-```apkparser-ag``` is also a quick command line to extract information about an APK:
-
-```
-(.venv) ➜  apk-parser git:(main) ✗ apkparser -i Android.apk
-```
-
-
-## API
-
-Let's say you have access to a python shell and import apkparser, you can load it with full analysis like:
-```
-import apkparser
-
-w = apkparser.APK(io.BytesIO(open("Android.apk", "rb").read()), {apkparser.OPTION_AXML: True, apkparser.OPTION_SIGNATURE: True, apkparser.OPTION_PERMISSION: True})
+```bash
+cd apkparser-rs
+cargo build --release
+# library + CLI binary `apkparser`
 ```
 
-For each class you can get documentation via:
-```
-help(w)
+## CLI
+
+**Python**
+
+```bash
+apkparser -i tests/data/APK/TestActivity.apk
 ```
 
-### Basic information
+**Rust**
 
-```
->>> w.get_main_activity()
-'me.proton.android.calendar.presentation.main.MainActivity'
-```
-
-```
->>> [i for i in w.get_dex_names()]
-['classes.dex', 'classes10.dex', 'classes11.dex', 'classes12.dex', 'classes13.dex', 'classes14.dex', 'classes15.dex', 'classes2.dex', 'classes3.dex', 'classes4.dex', 'classes5.dex', 'classes6.dex', 'classes7.dex', 'classes8.dex', 'classes9.dex']
+```bash
+cd apkparser-rs
+cargo run --bin apkparser -- ../tests/data/APK/TestActivity.apk --fingerprints
 ```
 
-```
->>> w.get_services()
-['androidx.room.MultiInstanceInvalidationService', 'com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService', 'androidx.work.impl.background.systemjob.SystemJobService', 'com.google.android.datatransport.runtime.backends.TransportBackendDiscovery', 'com.google.android.gms.auth.api.signin.RevocationBoundService', 'androidx.work.impl.background.systemalarm.SystemAlarmService', 'androidx.work.impl.foreground.SystemForegroundService', 'me.proton.android.calendar.CalendarWidgetRemoteViewsService']
+Example output (Rust CLI on the bundled test APK):
+
+```text
+=== ../tests/data/APK/TestActivity.apk ===
+  kind: APK
+  is_apk: true
+  files: 10 entries
+  manifest:
+    package: tests.androguard
+    versionCode: 1
+    versionName: 1.0
+    minSdkVersion: 9
+    targetSdkVersion: 16
+  signature:
+    v1 (JAR): true
+    v2: false
+    v3: false
+    v1 entry: META-INF/CERT.RSA
+    v1 cert SHA-256: 6f5c31608f1f9e285eb6343c7c8af07de81c1fb2148b5349bec906444144576d
 ```
 
-```
->>> w.get_android_manifest()
-<axml.axml.printer.AXMLPrinter object at 0x79cffeb44ad0>
+## Library examples
+
+Examples use the repo test APK:
+
+`tests/data/APK/TestActivity.apk`
+
+### Load an APK
+
+**Python**
+
+```python
+import io
+from apkparser import APK, OPTION_AXML, OPTION_SIGNATURE, OPTION_PERMISSION
+
+with open("tests/data/APK/TestActivity.apk", "rb") as f:
+    apk = APK(
+        io.BytesIO(f.read()),
+        {
+            OPTION_AXML: True,
+            OPTION_SIGNATURE: True,
+            OPTION_PERMISSION: True,
+        },
+    )
 ```
 
-```
->>> w.get_app_name()
-'Proton Calendar'
-```
+**Rust**
 
-### File Extraction
+```rust
+use apkparser::{Apk, ApkOptions};
 
-```
->>> w.get_files()
-['META-INF/com/android/build/gradle/app-metadata.properties', 'META-INF/version-control-info.textproto', 'assets/dexopt/baseline.prof', 'assets/dexopt/baseline.profm', 'classes.dex', 'classes10.dex', 'classes11.dex', 'classes12.dex', 'classes13.dex', 'classes14.dex', 'classes15.dex', 'classes2.dex', 'classes3.dex', 'classes4.dex', 'classes5.dex', 'classes6.dex', 'classes7.dex', 'classes8.dex', 'classes9.dex', 'lib/arm64-v8a/libandroidx.graphics.path.so', 'lib/arm64-v8a/libgojni.so', 'lib/arm64-v8a/libsentry-android.so', 'lib/arm64-v8a/libsentry.so', ....]
-```
-
-### Signature
-
-The ```signature``` object in the APK class can handle all things related to signatures, certificates related to the APK, like:
-
-```
->>> w.signature.get_certificates()
-[<asn1crypto.x509.Certificate 133934071544272 b'0\x82\x03\xc50\x82\x02\xad\xa0\x03\x02\x01\x02\x02\x04\x07\xf5\x0280\r\x06\t*\x86H\x86\xf7\r\x01\x01\x0b\x05\x000\x81\x921\x0b0\t\x06\x03U\x04\x06\x13\x02CH1\x0f0\r\x06\x03U\x04\x08\x13\x06Geneva1\x0f0\r\x06\x03U\x04\x07\x13\x06Geneva1\x1f0\x1d\x06\x03U\x04\n\x13\x16Proton Technologies AG1\x1f0\x1d\x06\x03U\x04\x0b\x13\x16Proton Technologies...]
+let bytes = std::fs::read("tests/data/APK/TestActivity.apk")?;
+let mut apk = Apk::from_bytes(
+    &bytes,
+    ApkOptions::default()
+        .with_axml(true)
+        .with_signature(true)
+        .with_permission(true),
+)?;
 ```
 
+### Manifest & app metadata
 
+**Python**
+
+```python
+>>> m = apk.get_android_manifest()
+>>> m.package
+'tests.androguard'
+>>> m.get_min_sdk_version(), m.get_target_sdk_version()
+('9', '16')
+>>> m.androidversion
+{'Code': '1', 'Name': '1.0'}
+>>> apk.get_app_name()
+'TestsAndroguardApplication'
+>>> apk.get_main_activity()
+'tests.androguard.TestActivity'
+>>> apk.get_app_icon()
+'res/drawable-hdpi/icon.png'
+>>> apk.get_activities()
+['tests.androguard.TestActivity']
 ```
-signature.find_certificate(
-signature.get_certificates_v1()
-signature.get_public_keys_v2()
-signature.is_signed()
-signature.parse_v3_signing_block()
-signature.get_certificate(
-signature.get_certificates_v2()
-signature.get_public_keys_v3()
-signature.is_signed_v1()
-signature.verify_signature(
-signature.get_certificate_der(
-signature.get_certificates_v3()
-signature.get_signature()
-signature.is_signed_v2()
-signature.verify_signer_info_against_sig_file(
-signature.get_certificates()
-signature.get_hash_algorithm(
-signature.get_signature_name()
-signature.is_signed_v3()                        
-signature.get_certificates_der_v2()
-signature.get_public_keys_der_v2()
-signature.get_signature_names()
-signature.parse_v2_signing_block()              
-signature.get_certificates_der_v3()
-signature.get_public_keys_der_v3()
-signature.get_signatures()
-signature.parse_v2_v3_signature()               
+
+**Rust**
+
+```rust
+let m = apk.get_android_manifest().unwrap();
+assert_eq!(m.package.as_deref(), Some("tests.androguard"));
+assert_eq!(m.min_sdk_version, Some(9));
+assert_eq!(m.target_sdk_version, Some(16));
+assert_eq!(m.version_code, Some(1));
+assert_eq!(m.version_name.as_deref(), Some("1.0"));
+// get_app_name / get_main_activity / get_app_icon are Python-only for now.
+```
+
+### Files & DEX
+
+**Python**
+
+```python
+>>> apk.get_files()
+['res/layout/main.xml', 'AndroidManifest.xml', 'resources.arsc',
+ 'res/drawable-hdpi/icon.png', 'res/drawable-ldpi/icon.png',
+ 'res/drawable-mdpi/icon.png', 'classes.dex',
+ 'META-INF/MANIFEST.MF', 'META-INF/CERT.SF', 'META-INF/CERT.RSA']
+>>> apk.get_dex_names()
+['classes.dex']
+>>> apk.get_file("classes.dex")[:4]
+b'dex\n'
+```
+
+**Rust**
+
+```rust
+let files = apk.get_files();
+assert!(files.iter().any(|f| f == "AndroidManifest.xml"));
+assert!(files.iter().any(|f| f == "classes.dex"));
+
+let dex = apk.get_file("classes.dex")?;
+assert!(dex.starts_with(b"dex\n"));
+```
+
+### Signature & certificates
+
+**Python**
+
+```python
+>>> apk.signature.is_signed()
+True
+>>> apk.signature.is_signed_v1(), apk.signature.is_signed_v2(), apk.signature.is_signed_v3()
+(True, False, False)
+>>> apk.signature.get_signature_name()
+'META-INF/CERT.RSA'
+>>> import hashlib
+>>> der = apk.signature.get_certificate_der(apk.signature.get_signature_name())
+>>> hashlib.sha256(der).hexdigest()
+'6f5c31608f1f9e285eb6343c7c8af07de81c1fb2148b5349bec906444144576d'
+```
+
+v1 + v2 sample (`tests/data/APK/TestActivity_signed_both.apk`):
+
+```python
+>>> apk.signature.is_signed_v1(), apk.signature.is_signed_v2()
+(True, True)
+>>> apk.signature.get_signature_name()
+'META-INF/ANDROGUA.RSA'
+>>> len(apk.signature.get_certificates_der_v2())
+1
+```
+
+**Rust**
+
+```rust
+let sig = apk.get_signature_mut().unwrap();
+assert!(sig.is_signed_v1());
+assert!(!sig.is_signed_v2());
+assert_eq!(sig.get_signature_name().as_deref(), Some("META-INF/CERT.RSA"));
+
+let der = sig.get_certificate_der("META-INF/CERT.RSA")?.unwrap();
+// SHA-256: 6f5c31608f1f9e285eb6343c7c8af07de81c1fb2148b5349bec906444144576d
+
+let certs_v2 = sig.get_certificates_der_v2()?;
+let certs_v3 = sig.get_certificates_der_v3()?;
+```
+
+Useful signature helpers (Python):
+
+```text
+signature.is_signed() / is_signed_v1() / is_signed_v2() / is_signed_v3()
+signature.get_signature_name() / get_signature_names()
+signature.get_certificate() / get_certificate_der()
+signature.get_certificates_der_v2() / get_certificates_der_v3()
+signature.get_public_keys_der_v2() / get_public_keys_der_v3()
 ```
 
 ### Permissions
 
-The ```permissions``` object in the APK can handle all things related to permissions usage, detailed permissions, aosp permissions etc, like:
+**Python** (`tests/data/APK/a2dp.Vol_137.apk`)
 
-```
->>> w.permissions.get_details_permissions()
-{'android.permission.USE_EXACT_ALARM': ['normal', 'Schedule alarms or event reminders', 'This app can schedule actions like alarms and reminders to notify you at a desired time in the future.'], 'android.permission.FOREGROUND_SERVICE': ['normal|instant', 'run foreground service', 'Allows the app to make use of foreground services.'], ...}
+```python
+>>> apk.get_android_manifest().package
+'a2dp.Vol'
+>>> sorted(apk.get_android_manifest().permissions)[:3]
+['android.permission.ACCESS_COARSE_LOCATION',
+ 'android.permission.ACCESS_FINE_LOCATION',
+ 'android.permission.ACCESS_LOCATION_EXTRA_COMMANDS']
+>>> # With OPTION_PERMISSION:
+>>> apk.permissions.get_details_permissions()
+# name -> [protectionLevel, label, description]
 ```
 
-### DEX objects
+**Rust**
 
-It is possible also to get all DEX (DEXHelper) objects from the APK for easy usage like:
+```rust
+let m = apk.get_android_manifest().unwrap();
+assert_eq!(m.package.as_deref(), Some("a2dp.Vol"));
+assert!(m.uses_permissions.iter().any(|p| p == "android.permission.BLUETOOTH"));
+
+if let Some(perms) = apk.get_permissions() {
+    let _aosp = perms.get_requested_aosp_permissions();
+}
 ```
-    for dex_file in w.get_all_dex():
-        print(dex_file)
+
+### DEX objects (Python)
+
+```python
+for dex in apk.get_all_dex():
+    print(dex)
 ```
+
+### APKM (split containers)
+
+**Python**
+
+```python
+import io
+from apkparser import APK, OPTION_AXML, OPTION_SIGNATURE
+from apkparser.utils import is_android_raw, unwrap_apkm_to_apk_bytes
+
+raw = open("app.apkm", "rb").read()
+assert is_android_raw(raw) == "APKM"
+base = unwrap_apkm_to_apk_bytes(raw)
+# Or load directly — APK() auto-unwraps APKM:
+apk = APK(io.BytesIO(raw), {OPTION_AXML: True, OPTION_SIGNATURE: True})
+```
+
+**Rust**
+
+```rust
+use apkparser::{looks_like_apkm, unwrap_to_apk_bytes, ApkmArchive, Apk, ApkOptions};
+
+assert!(looks_like_apkm(&raw));
+let base = unwrap_to_apk_bytes(&raw)?;
+let apk = Apk::from_bytes(&raw, ApkOptions::default().with_axml(true))?;
+
+let archive = ApkmArchive::from_bytes(&raw)?;
+archive.extract_apks_to(std::path::Path::new("./out"))?;
+```
+
+```bash
+cargo run --bin apkparser -- app.apkm --list-splits
+cargo run --bin apkparser -- app.apkm --extract-apks ./out
+```
+
+## Python ↔ Rust map
+
+| Python | Rust |
+|--------|------|
+| `apkparser.APK` / `OPTION_*` | `Apk` / `ApkOptions` |
+| `apkparser.zip` | `apkparser::zip` (`ZipEntry`) |
+| `apkparser.signature` | `apkparser::signature` (`ApkSignature`) |
+| `apkparser.permissions` | `apkparser::permissions` |
+| `apkparser.utils.is_android_raw` | `is_android_raw` |
+| APKM unwrap helpers | `looks_like_apkm`, `unwrap_to_apk_bytes`, `ApkmArchive` |
+| `get_app_name` / `get_main_activity` / components | Python only (for now) |
+| DEX via `dexparser` | Logical DEX helpers (partial) |
+
+More Rust detail: [`apkparser-rs/README.md`](./apkparser-rs/README.md).
+
+## Tests
+
+```bash
+# Python
+pytest tests/
+
+# Rust
+cd apkparser-rs && cargo test
+```
+
+Test APKs: `tests/data/APK/` (`TestActivity.apk`, `TestActivity_signed_both.apk`, `a2dp.Vol_137.apk`, `apksig/`, …).
 
 ## License
 
