@@ -1,6 +1,9 @@
 from axml.axml import AXMLPrinter
 
-from .ressources import load_api_specific_resource_module
+from .ressources import (
+    load_api_specific_resource_module,
+    _resolve_api_level,
+)
 from apkparser.helper.logging import LOGGER
 
 # Dictionary of the different protection levels mapped to their corresponding attribute names as described in
@@ -146,7 +149,7 @@ class Permissions(object):
     def _update_permission_protection_level(
         self, protection_level, sdk_version
     ):
-        if not sdk_version or int(sdk_version) <= 15:
+        if not sdk_version or _resolve_api_level(sdk_version) <= 15:
             return protection_level.replace('Or', '|').lower()
         return protection_level
 
