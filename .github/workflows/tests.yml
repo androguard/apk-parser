@@ -1,4 +1,4 @@
-name: Run Tests on Ubuntu
+name: Tests
 
 on:
   push:
@@ -7,78 +7,82 @@ on:
       - main
 
 jobs:
-  ubuntu_3_13:
-    name: Python 3.13 with pip
+  python:
+    name: Python ${{ matrix.python-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: '3.13'
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Install Dependencies
-      run: |
-        python3 -m pip install --upgrade pip
-        python3 -m pip install rich lxml pytest
-        python3 -m pip install .
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install --no-install-recommends libmagic1 libmagic-dev
 
-    - name: Run unittest tests
-      run: python3 -m unittest discover -s tests
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
 
-    - name: Build with setuptools
-      run: |
-        python3 -m pip install build
-        python3 -m build
+      - name: Install Python package and test deps
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest
+          python3 -m pip install .
 
-  ubuntu_lts:
-    name: Ubuntu/LTS packages
-    runs-on: ubuntu-latest
+      - name: Run unittest
+        run: python3 -m unittest discover -s tests -v
 
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - name: Build sdist/wheel
+        run: |
+          python3 -m pip install build
+          python3 -m build
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install --no-install-recommends \
-          python3 \
-          python3-lxml \
-          python3-rich \
-          python3-pytest \
-          python3-setuptools \
-          python3-pip \
-          python3-build
-
-    - name: Run unittest tests
-      run: python3 -m unittest discover -s tests
-
-    - name: Build with setuptools
-      run: |
-        python3 -m build
-
-  ubuntu_22_04:
-    name: Ubuntu/22.04 packages
+  python-ubuntu-22-04:
+    name: Python 3.10 (Ubuntu 22.04)
     runs-on: ubuntu-22.04
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-    - name: Install Dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get -y install --no-install-recommends \
-          python3 \
-          python3-lxml \
-          python3-rich \
-          python3-pytest \
-          python3-setuptools \
-          python3-pip
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install --no-install-recommends \
+            python3 \
+            python3-pip \
+            python3-venv \
+            python3-setuptools \
+            libmagic1 \
+            libmagic-dev
 
-    - name: Run unittest tests
-      run: python3 -m unittest discover -s tests
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install package
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install pytest
+          python3 -m pip install .
+
+      - name: Run unittest
+        run: python3 -m unittest discover -s tests -v
+
+  rust:
+    name: Rust (apkparser-rs)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo test
+        working-directory: apkparser-rs
+        run: cargo test
