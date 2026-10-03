@@ -1,0 +1,13 @@
+[package]
+name = "apkparser-py"
+version = "0.0.3"
+edition = "2021"
+description = "Python bindings for apkparser-rs (Rust APK parser)"
+
+[lib]
+name = "apkparser_rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+apkparser = { path = "../apkparser-rs" }
+pyo3 = { version = "0.23", features = ["extension-module"] }

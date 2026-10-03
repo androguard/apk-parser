@@ -514,11 +514,13 @@ class ZipEntry:
         eocd: EndOfCentralDirectoryRecord,
         central_directory: CentralDirectory,
         local_headers: Dict[str, LocalHeaderRecord],
+        rust=None,
     ):
         self.zip = zip_bytes
         self.eocd = eocd
         self.central_directory = central_directory
         self.local_headers = local_headers
+        self._rust = rust
 
     @classmethod
     def parse(cls, inc_apk, raw: bool = True):
@@ -537,15 +539,21 @@ class ZipEntry:
         else:
             with open(inc_apk, 'rb') as apk:
                 apk_file = io.BytesIO(apk.read())
+        try:
+            import apkparser_rs
+
+            pos = apk_file.tell()
+            apk_file.seek(0)
+            blob = apk_file.read()
+            apk_file.seek(0 if pos != 0 else 0)
+            rust = apkparser_rs.ZipArchive(blob)
+            return cls(apk_file, None, None, {}, rust=rust)
+        except Exception:
+            pass
         eocd = EndOfCentralDirectoryRecord.parse(apk_file)
         central_directory = CentralDirectory.parse(apk_file, eocd)
-        local_headers = {}
-        for entry in central_directory.entries:
-            local_header_entry = LocalHeaderRecord.parse(
-                apk_file, central_directory.entries[entry]
-            )
-            local_headers[local_header_entry.filename] = local_header_entry
-        return cls(apk_file, eocd, central_directory, local_headers)
+        # Local headers are parsed on demand in read() / get_local_header_dict().
+        return cls(apk_file, eocd, central_directory, {})
 
     @classmethod
     def parse_single(
@@ -579,6 +587,28 @@ class ZipEntry:
         }
         return cls(apk_file, eocd, central_directory, local_header)
 
+    def _ensure_local_header(self, filename):
+        """Parse the local file header for ``filename`` if it is not cached."""
+        cached = self.local_headers.get(filename)
+        if cached is not None:
+            return cached
+        if self.central_directory is None:
+            return None
+        cd_entry = self.central_directory.entries.get(filename)
+        if cd_entry is None:
+            return None
+        record = LocalHeaderRecord.parse(self.zip, cd_entry)
+        if record is None:
+            return None
+        self.local_headers[filename] = record
+        return record
+
+    def _materialize_local_headers(self):
+        if self.central_directory is None:
+            return
+        for name in self.central_directory.entries:
+            self._ensure_local_header(name)
+
     def to_dict(self):
         """
         Represent the class as a dictionary.
@@ -586,6 +616,9 @@ class ZipEntry:
         :return: returns the dictionary
         :rtype: dict
         """
+        self._materialize_local_headers()
+        if self._rust is not None and self.eocd is None:
+            return {"names": self.namelist()}
         return {
             "end_of_central_directory": self.eocd.to_dict(),
             "central_directory": self.central_directory.to_dict(),
@@ -604,7 +637,7 @@ class ZipEntry:
         :return: returns a dictionary of the central directory entry or None if the filename is not found
         :rtype: dict
         """
-        if filename in self.central_directory.entries:
+        if self.central_directory and filename in self.central_directory.entries:
             return self.central_directory.entries[filename].to_dict()
         
 
@@ -622,9 +655,10 @@ class ZipEntry:
         :return: returns a ditionary of the local header entry or None if the filename is not found
         :rtype: dict
         """
-        if filename in self.local_headers:
-            return self.local_headers[filename].to_dict()
-          
+        record = self._ensure_local_header(filename)
+        if record is not None:
+            return record.to_dict()
+
         LOGGER.warning(
             f"Key: {filename} was not found within the local headers list!"
         )
@@ -642,6 +676,11 @@ class ZipEntry:
         :return: returns the raw bytes of the filename that was extracted
         :rtype: bytes
         """
+        if self._rust is not None:
+            try:
+                return bytes(self._rust.read(name))
+            except Exception:
+                return None
         return extract_file_based_on_header_info(
             self.zip,
             self.get_local_header_dict(name),
@@ -655,6 +694,8 @@ class ZipEntry:
         :return: returns a dictionary where the keys are the filenames and the values are each an instance of the CentralDirectoryEntry
         :rtype: dict
         """
+        if self.central_directory is None:
+            return {}
         return self.central_directory.entries
 
     def namelist(self):
@@ -664,4 +705,8 @@ class ZipEntry:
         :return: returns the list of the filenames
         :rtype: list
         """
+        if self._rust is not None:
+            return list(self._rust.namelist())
+        if self.central_directory is None:
+            return []
         return [vl for vl in self.central_directory.to_dict()]

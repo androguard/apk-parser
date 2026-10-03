@@ -13,7 +13,7 @@
 use std::path::Path;
 
 use crate::error::{Error, Result};
-use crate::zip::ZipEntry;
+use crate::zip::{ZipArchive, ZipIndex};
 
 /// Kind of entry inside an APKM (or similar split container).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,7 +34,7 @@ pub struct ApkmEntry {
 
 /// Parsed APKM / split-APK container.
 pub struct ApkmArchive {
-    zip: ZipEntry,
+    zip: ZipArchive,
     entries: Vec<ApkmEntry>,
     base_name: String,
     info_json: Option<String>,
@@ -49,7 +49,7 @@ impl ApkmArchive {
                     .into(),
             ));
         }
-        let zip = ZipEntry::parse(data)?;
+        let zip = ZipArchive::parse_slice(data)?;
         let (entries, base_name, info_json) = classify_entries(&zip)?;
         Ok(Self {
             zip,
@@ -131,14 +131,14 @@ pub fn looks_like_apkm(raw: &[u8]) -> bool {
     if raw.len() < 4 || !raw.starts_with(b"PK") {
         return false;
     }
-    let Ok(zip) = ZipEntry::parse(raw) else {
+    let Ok(zip) = ZipIndex::parse(raw) else {
         return false;
     };
-    // Plain APK: AndroidManifest.xml as a zip entry (not merely nested inside base.apk bytes).
-    if zip_has_root_manifest(&zip) {
+    let names: Vec<String> = zip.namelist().map(|s| s.to_string()).collect();
+    if zip_has_root_manifest(names.iter().map(|s| s.as_str())) {
         return false;
     }
-    find_base_apk_name(zip.namelist()).is_some()
+    find_base_apk_name(&names).is_some()
 }
 
 /// If `raw` is an APKM, return base APK bytes; if already an APK, return a copy.
@@ -160,10 +160,10 @@ pub fn is_plain_apk(raw: &[u8]) -> bool {
     if raw.len() < 4 || !raw.starts_with(b"PK") {
         return false;
     }
-    let Ok(zip) = ZipEntry::parse(raw) else {
+    let Ok(zip) = ZipIndex::parse(raw) else {
         return false;
     };
-    zip_has_root_manifest(&zip)
+    zip_has_root_manifest(zip.namelist())
 }
 
 /// Write a minimal synthetic APKM for tests (base + one split + info.json).
@@ -188,16 +188,17 @@ pub fn write_test_apkm(base_apk: &[u8], split_apk: &[u8]) -> Result<Vec<u8>> {
     Ok(cursor.into_inner())
 }
 
-fn classify_entries(zip: &ZipEntry) -> Result<(Vec<ApkmEntry>, String, Option<String>)> {
-    let base_name = find_base_apk_name(zip.namelist())
+fn classify_entries(zip: &ZipArchive) -> Result<(Vec<ApkmEntry>, String, Option<String>)> {
+    let names = zip.names();
+    let base_name = find_base_apk_name(&names)
         .ok_or_else(|| Error::Parse("APKM missing base.apk (or any *.apk)".into()))?
         .to_string();
 
     let mut entries = Vec::new();
     let mut info_json = None;
-    for name in zip.namelist() {
+    for name in &names {
         let lower = name.to_ascii_lowercase();
-        let size = zip.read(name).map(|b| b.len()).unwrap_or(0);
+        let size = zip.uncompressed_size(name).unwrap_or(0) as usize;
         let kind = if name == &base_name || lower.ends_with("/base.apk") {
             ApkmEntryKind::Base
         } else if is_apk_entry(name) {
@@ -212,7 +213,7 @@ fn classify_entries(zip: &ZipEntry) -> Result<(Vec<ApkmEntry>, String, Option<St
             ApkmEntryKind::Other
         };
         if lower == "info.json" || lower.ends_with("/info.json") {
-            if let Ok(bytes) = zip.read_to_vec(name) {
+            if let Ok(bytes) = zip.read(name) {
                 info_json = Some(String::from_utf8_lossy(&bytes).into_owned());
             }
         }
@@ -254,13 +255,13 @@ fn is_apk_entry(name: &str) -> bool {
     file.to_ascii_lowercase().ends_with(".apk") && !file.starts_with('.')
 }
 
-fn zip_has_root_manifest(zip: &ZipEntry) -> bool {
-    zip.namelist().iter().any(|n| {
+fn zip_has_root_manifest<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
+    names.any(|n| {
         n == "AndroidManifest.xml"
             || (n.ends_with("/AndroidManifest.xml")
                 && !n.to_ascii_lowercase().contains(".apk/")
                 && n.matches('/').count() <= 1)
-    }) || zip.contains("AndroidManifest.xml")
+    })
 }
 
 fn safe_filename(name: &str) -> String {

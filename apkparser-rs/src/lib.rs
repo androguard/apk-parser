@@ -26,4 +26,4 @@ pub use permissions::{load_permissions, PermissionInfo, Permissions, Permissions
 pub use signature::ApkSignature;
 pub use utils::{is_android, is_android_raw, read_uint32_le};
 pub use dex_entries::{dex_entries, iter_logical_dexes, logical_dex_offsets};
-pub use zip::{CentralEntry, ZipEntry, ZipIndex};
+pub use zip::{CentralEntry, ZipArchive, ZipEntry, ZipIndex};

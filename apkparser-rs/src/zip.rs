@@ -102,6 +102,87 @@ impl<'a> ZipIndex<'a> {
     pub fn contains(&self, name: &str) -> bool {
         self.by_name.contains_key(name)
     }
+
+    /// Drop the borrow of `data`, keeping CD metadata.
+    pub fn into_catalog(self) -> (Vec<CentralEntry>, HashMap<String, usize>, usize, usize) {
+        (self.entries, self.by_name, self.cd_off, self.cd_end)
+    }
+}
+
+/// Owned ZIP: central directory only. Entry bytes are inflated in [`ZipArchive::read`].
+pub struct ZipArchive {
+    data: Vec<u8>,
+    entries: Vec<CentralEntry>,
+    by_name: HashMap<String, usize>,
+    cd_off: usize,
+    cd_end: usize,
+}
+
+impl ZipArchive {
+    /// Parse the central directory; do not extract entry contents.
+    pub fn parse(data: Vec<u8>) -> Result<Self> {
+        let (entries, by_name, cd_off, cd_end) = ZipIndex::parse(&data)?.into_catalog();
+        Ok(Self {
+            data,
+            entries,
+            by_name,
+            cd_off,
+            cd_end,
+        })
+    }
+
+    pub fn parse_slice(apk: &[u8]) -> Result<Self> {
+        Self::parse(apk.to_vec())
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.data
+    }
+
+    pub fn entries(&self) -> &[CentralEntry] {
+        &self.entries
+    }
+
+    pub fn namelist(&self) -> impl Iterator<Item = &str> {
+        self.entries.iter().map(|e| e.filename.as_str())
+    }
+
+    pub fn names(&self) -> Vec<String> {
+        self.entries.iter().map(|e| e.filename.clone()).collect()
+    }
+
+    pub fn entry(&self, name: &str) -> Option<&CentralEntry> {
+        self.by_name.get(name).map(|&i| &self.entries[i])
+    }
+
+    pub fn contains(&self, name: &str) -> bool {
+        self.by_name.contains_key(name)
+    }
+
+    pub fn read(&self, name: &str) -> Result<Vec<u8>> {
+        let e = self
+            .entry(name)
+            .ok_or_else(|| Error::FileNotPresent(name.to_string()))?;
+        extract_entry(&self.data, e)
+    }
+
+    pub fn read_to_vec(&self, name: &str) -> Result<Vec<u8>> {
+        self.read(name)
+    }
+
+    pub fn uncompressed_size(&self, name: &str) -> Option<u64> {
+        self.entry(name).map(|e| e.uncompressed_size)
+    }
+
+    pub fn as_index(&self) -> ZipIndex<'_> {
+        ZipIndex {
+            data: &self.data,
+            entries: self.entries.clone(),
+            by_name: self.by_name.clone(),
+            cd_off: self.cd_off,
+            cd_end: self.cd_end,
+        }
+    }
 }
 
 /// ZIP archive wrapper: list names and read file contents (eager materialisation).
@@ -396,6 +477,15 @@ mod tests {
         let zip = ZipEntry::parse(&z).unwrap();
         assert_eq!(zip.namelist(), &["a.txt".to_string()]);
         assert_eq!(zip.read("a.txt").unwrap(), b"hi");
+    }
+
+    #[test]
+    fn zip_archive_does_not_require_eager_extract() {
+        let z = minimal_stored_zip();
+        let archive = ZipArchive::parse(z.clone()).unwrap();
+        assert!(archive.contains("a.txt"));
+        assert_eq!(archive.read("a.txt").unwrap(), b"hi");
+        assert_eq!(archive.names(), vec!["a.txt".to_string()]);
     }
 
     #[test]

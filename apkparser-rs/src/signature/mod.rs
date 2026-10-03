@@ -10,7 +10,7 @@ pub use v2::{parse_v2_signing_block, ApkV2SignedData, ApkV2Signer};
 pub use v3::{parse_v3_signing_block, ApkV3SignedData, ApkV3Signer};
 
 use apk_sig_block::{parse_apk_sig_block, APK_SIG_KEY_V2_SIGNATURE, APK_SIG_KEY_V3_SIGNATURE};
-use crate::zip::ZipEntry;
+use crate::zip::ZipArchive;
 use std::collections::HashMap;
 
 /// APK signature parser: parses v1 (JAR), v2, and v3 signatures from an APK.
@@ -27,42 +27,30 @@ pub struct ApkSignature {
 impl ApkSignature {
     pub fn from_bytes(apk: &[u8]) -> crate::Result<Self> {
         let (is_signed_v2, is_signed_v3, v2_blocks) = parse_apk_sig_block(apk)?;
-        let zip = ZipEntry::parse(apk)?;
+        let zip = ZipArchive::parse_slice(apk)?;
+        Self::from_zip_and_blocks(&zip, is_signed_v2, is_signed_v3, v2_blocks)
+    }
+
+    /// Build from an already-parsed [`ZipArchive`] (avoids re-reading the archive).
+    /// Only `META-INF` PKCS7 / `.SF` entries are inflated for v1.
+    pub fn from_zip(apk: &[u8], zip: &ZipArchive) -> crate::Result<Self> {
+        let (is_signed_v2, is_signed_v3, v2_blocks) = parse_apk_sig_block(apk)?;
         Self::from_zip_and_blocks(zip, is_signed_v2, is_signed_v3, v2_blocks)
     }
 
-    /// Build from an already-parsed [`ZipEntry`] (avoids re-reading the archive).
-    pub fn from_zip(apk: &[u8], zip: &ZipEntry) -> crate::Result<Self> {
-        let (is_signed_v2, is_signed_v3, v2_blocks) = parse_apk_sig_block(apk)?;
-        let zip_names = zip.namelist().to_vec();
-        let mut zip_file_contents: HashMap<String, Vec<u8>> = HashMap::new();
-        for name in &zip_names {
-            if let Ok(data) = zip.read_to_vec(name) {
-                zip_file_contents.insert(name.clone(), data);
-            }
-        }
-        Ok(Self {
-            is_signed_v2,
-            is_signed_v3,
-            v2_blocks,
-            v2_signing_data: None,
-            v3_signing_data: None,
-            zip_names,
-            zip_file_contents,
-        })
-    }
-
     fn from_zip_and_blocks(
-        zip: ZipEntry,
+        zip: &ZipArchive,
         is_signed_v2: bool,
         is_signed_v3: bool,
         v2_blocks: HashMap<u32, Vec<u8>>,
     ) -> crate::Result<Self> {
-        let zip_names = zip.namelist().to_vec();
+        let zip_names = zip.names();
         let mut zip_file_contents: HashMap<String, Vec<u8>> = HashMap::new();
         for name in &zip_names {
-            if let Ok(data) = zip.read_to_vec(name) {
-                zip_file_contents.insert(name.clone(), data);
+            if is_v1_signature_file(name) {
+                if let Ok(data) = zip.read(name) {
+                    zip_file_contents.insert(name.clone(), data);
+                }
             }
         }
         Ok(Self {
@@ -183,4 +171,15 @@ impl ApkSignature {
         }
         out
     }
+}
+
+fn is_v1_signature_file(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    if !upper.starts_with("META-INF/") {
+        return false;
+    }
+    upper.ends_with(".RSA")
+        || upper.ends_with(".DSA")
+        || upper.ends_with(".EC")
+        || upper.ends_with(".SF")
 }

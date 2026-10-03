@@ -6,7 +6,7 @@ use crate::manifest::{parse_manifest, AndroidManifest};
 use crate::permissions::{load_permissions, Permissions};
 use crate::signature::ApkSignature;
 use crate::utils::is_android_raw;
-use crate::zip::ZipEntry;
+use crate::zip::ZipArchive;
 use std::path::Path;
 
 /// Options for APK parsing (mirrors OPTION_*).
@@ -49,8 +49,7 @@ impl ApkOptions {
 
 /// APK parser - main entry (mirrors Python APK class).
 pub struct Apk {
-    data: Vec<u8>,
-    zip: ZipEntry,
+    zip: ZipArchive,
     pub signature: Option<ApkSignature>,
     pub manifest: Option<AndroidManifest>,
     pub permissions: Option<Permissions>,
@@ -75,13 +74,13 @@ impl Apk {
 
     /// Like [`from_bytes`], but never unwraps APKM — `data` must already be a plain APK.
     pub fn from_apk_bytes(data: Vec<u8>, options: ApkOptions) -> Result<Self> {
-        let zip = ZipEntry::parse(&data)?;
+        let zip = ZipArchive::parse(data)?;
         let mut signature = None;
         let mut manifest = None;
         let mut permissions = None;
 
         if options.axml {
-            if let Ok(manifest_bytes) = zip.read_to_vec("AndroidManifest.xml") {
+            if let Ok(manifest_bytes) = zip.read("AndroidManifest.xml") {
                 match parse_manifest(&manifest_bytes) {
                     Ok(m) => manifest = Some(m),
                     Err(_) => {}
@@ -90,7 +89,7 @@ impl Apk {
         }
 
         if options.signature {
-            signature = Some(ApkSignature::from_zip(&data, &zip)?);
+            signature = Some(ApkSignature::from_zip(zip.data(), &zip)?);
         }
 
         if options.permission {
@@ -105,7 +104,6 @@ impl Apk {
         }
 
         Ok(Self {
-            data,
             zip,
             signature,
             manifest,
@@ -129,22 +127,23 @@ impl Apk {
 
     /// Return true if this looks like an APK (ZIP with AndroidManifest.xml).
     pub fn is_apk(&self) -> bool {
-        is_android_raw(&self.data) == Some("APK")
+        self.zip.contains("AndroidManifest.xml")
+            || is_android_raw(self.zip.data()) == Some("APK")
     }
 
     /// List file names inside the APK (like get_files / namelist).
-    pub fn get_files(&self) -> &[String] {
-        self.zip.namelist()
+    pub fn get_files(&self) -> Vec<String> {
+        self.zip.names()
     }
 
     /// Read a file by name (like get_file).
     pub fn get_file(&self, name: &str) -> Result<Vec<u8>> {
-        self.zip.read_to_vec(name)
+        self.zip.read(name)
     }
 
     /// Return raw AndroidManifest.xml bytes if present.
     pub fn get_android_manifest_bytes(&self) -> Option<Vec<u8>> {
-        self.zip.read_to_vec("AndroidManifest.xml").ok()
+        self.zip.read("AndroidManifest.xml").ok()
     }
 
     /// Return parsed Android manifest if AXML option was set and parsing succeeded.

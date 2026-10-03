@@ -3,9 +3,9 @@ name = "apkparser-ag"
 readme = "README.md"
 license = { file = "LICENSE" }
 keywords = ["Android, Androguard, Security"]
-description = "APK Parser: Your Crowbar for Android Archives"
+description = "APK Parser: Rust ZIP core with Python APK API"
 requires-python = ">=3.10"
-version = "0.0.2"
+version = "0.0.3"
 authors = [{ name = "anthony", email = "ping@42.bzh" }]
 
 classifiers = [
@@ -14,11 +14,11 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
     "Topic :: Security",
     "Topic :: Software Development",
     "Topic :: Utilities",
@@ -29,14 +29,14 @@ dependencies = ["dexparser-ag>=0.0.1", "axml>=0.0.2", "rich>=14.0.0", "asn1crypt
 apkparser = "apkparser.main:app"
 
 [build-system]
-requires = ["setuptools>=68", "setuptools_scm>=8.0"]
-build-backend = "setuptools.build_meta"
+requires = ["maturin>=1.4,<2"]
+build-backend = "maturin"
 
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["apkparser", "apkparser.*"]
-
+[tool.maturin]
+manifest-path = "apkparser-py/Cargo.toml"
+module-name = "apkparser_rs"
+python-packages = ["apkparser"]
+features = ["pyo3/extension-module"]
 
 [tool.black]
 line-length = 79

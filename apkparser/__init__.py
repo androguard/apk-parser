@@ -1,7 +1,10 @@
 import io
+import mmap
+import os
 import re
 import hashlib
-from typing import Iterator
+from pathlib import Path
+from typing import BinaryIO, Iterator, Union
 from xmlrpc.client import boolean
 from zlib import crc32
 import magic
@@ -9,8 +12,9 @@ import magic
 from apkparser.helper.logging import LOGGER
 from apkparser.zip import headers
 from apkparser.signature import APKSignature
-from apkparser.utils import is_android_raw, unwrap_apkm_to_apk_bytes
+from apkparser.utils import is_android_raw
 from apkparser.permissions import Permissions
+from apkparser.arsc_label import resolve_arsc_string
 
 from axml.axml import AXMLPrinter, namespace
 from axml.arsc import ARSCParser, ARSCResTableConfig
@@ -19,6 +23,8 @@ from dexparser import DEX, DEXHelper
 
 
 APK_FILENAME_MANIFEST = "AndroidManifest.xml"
+PathLike = Union[str, Path, os.PathLike]
+
 
 class Error(Exception):
     """Base class for exceptions in this module."""
@@ -37,37 +43,116 @@ OPTION_PERMISSION = "PERMISSION"
 class APK(object):
     def __init__(
         self,
-        raw: io.BytesIO,
+        raw: Union[io.BytesIO, bytes, PathLike, BinaryIO],
         options: dict[str, bool] = {},
     ):
-        data = raw.read()
-        raw.seek(0)
-        # APKM (APKMirror split container) → analyze base.apk
-        if is_android_raw(data) == "APKM":
-            data = unwrap_apkm_to_apk_bytes(data)
-            raw = io.BytesIO(data)
-
-        self._raw = raw
+        self._owned_file = None
+        self._raw = self._bind_source(raw)
 
         self.valid_apk: boolean = False
         self.axml: AXMLPrinter|None = None
         self.signature: APKSignature|None = None
         self.permissions: Permissions|None = None
 
-        self.arsc = {}  
+        self.arsc = {}
 
         self._files = {}
         self.files_crc32 = {}
-
-        self._sha256 = hashlib.sha256(data).hexdigest()
-        # Set the filename to something sane
-        self.filename = "raw_apk_sha256:{}".format(self._sha256)
+        self._sha256 = None
+        self._filename = None
 
         self._raw.seek(0)
         self.zip: headers.ZipEntry = headers.ZipEntry.parse(self._raw, True)
+        self._unwrap_apkm_if_needed()
 
         # Parsing non mandatory structures
         self._parse_fields(options)
+
+    def _bind_source(self, raw):
+        if isinstance(raw, (str, Path, os.PathLike)):
+            fh = open(os.fspath(raw), "rb")
+            self._owned_file = fh
+            try:
+                return mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+            except ValueError:
+                data = fh.read()
+                fh.close()
+                self._owned_file = None
+                return io.BytesIO(data)
+        if isinstance(raw, (bytes, bytearray)):
+            return io.BytesIO(raw)
+        if isinstance(raw, mmap.mmap):
+            raw.seek(0)
+            return raw
+        raw.seek(0)
+        return raw
+
+    def _unwrap_apkm_if_needed(self) -> None:
+        names = self.zip.namelist()
+        if APK_FILENAME_MANIFEST in names:
+            return
+        nested = None
+        for name in names:
+            if name.rsplit("/", 1)[-1].lower() == "base.apk":
+                nested = name
+                break
+        if nested is None:
+            apks = [
+                n for n in names if n.rsplit("/", 1)[-1].lower().endswith(".apk")
+            ]
+            if len(apks) == 1:
+                nested = apks[0]
+        if nested is None:
+            return
+        inner = self.zip.read(nested)
+        self.close()
+        self._raw = io.BytesIO(inner)
+        self.zip = headers.ZipEntry.parse(self._raw, True)
+
+    @property
+    def sha256(self) -> str:
+        if self._sha256 is None:
+            raw = self._raw
+            if isinstance(raw, mmap.mmap):
+                self._sha256 = hashlib.sha256(raw).hexdigest()
+            else:
+                pos = raw.tell()
+                raw.seek(0)
+                self._sha256 = hashlib.sha256(raw.read()).hexdigest()
+                raw.seek(pos)
+        return self._sha256
+
+    @property
+    def filename(self) -> str:
+        if self._filename is None:
+            self._filename = "raw_apk_sha256:{}".format(self.sha256)
+        return self._filename
+
+    @filename.setter
+    def filename(self, value: str) -> None:
+        self._filename = value
+
+    def close(self) -> None:
+        raw = getattr(self, "_raw", None)
+        if isinstance(raw, mmap.mmap):
+            try:
+                raw.close()
+            except (ValueError, OSError, BufferError):
+                pass
+        owned = getattr(self, "_owned_file", None)
+        if owned is not None:
+            try:
+                owned.close()
+            except OSError:
+                pass
+            self._owned_file = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
 
     def _parse_fields(self, options: dict[str, bool]):
         if options.get(OPTION_AXML):
@@ -243,17 +328,16 @@ class APK(object):
         buffer = self.zip.read(filename)
         if filename not in self.files_crc32:
             self.files_crc32[filename] = crc32(buffer)
-            if (
-                self.files_crc32[filename]
-                != self.zip.infolist()[filename].crc32_of_uncompressed_data
-            ):
+            info = self.zip.infolist()
+            declared = None
+            if filename in info:
+                declared = info[filename].crc32_of_uncompressed_data
+            if declared is not None and self.files_crc32[filename] != declared:
                 LOGGER.error(
                     "File '{}' has different CRC32 after unpacking! "
                     "Declared: {:08x}, Calculated: {:08x}".format(
                         filename,
-                        self.zip.infolist()[
-                            filename
-                        ].crc32_of_uncompressed_data,
+                        declared,
                         self.files_crc32[filename],
                     )
                 )
@@ -340,12 +424,10 @@ class APK(object):
             return ""
 
         if app_name.startswith("@"):
-            res_parser = self.get_android_resources()
-            if not res_parser:
-                # TODO: What should be the correct return value here?
+            try:
+                res_id, package = ARSCParser.parse_id(app_name)
+            except Exception:
                 return app_name
-
-            res_id, package = res_parser.parse_id(app_name)
 
             # If the package name is the same as the APK package,
             # we should be able to resolve the ID.
@@ -366,6 +448,22 @@ class APK(object):
                         )
                     )
                     return app_name
+
+            arsc_raw = None
+            if "resources.arsc" in self.zip.namelist():
+                try:
+                    arsc_raw = self.zip.read("resources.arsc")
+                except Exception:
+                    arsc_raw = None
+            if arsc_raw:
+                fast = resolve_arsc_string(arsc_raw, res_id)
+                if fast:
+                    return fast
+
+            res_parser = self.get_android_resources()
+            if not res_parser:
+                # TODO: What should be the correct return value here?
+                return app_name
 
             try:
                 config = (
