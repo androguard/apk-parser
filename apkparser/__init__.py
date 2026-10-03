@@ -372,6 +372,20 @@ class APK(object):
         """
         return self.axml
 
+    @property
+    def declared_permissions(self) -> dict:
+        """
+        Permissions declared by this APK (`<permission>` tags).
+
+        Available after AXML parsing. If `OPTION_PERMISSION` was not set, the
+        details are computed on first access.
+        """
+        if self.permissions is None:
+            if self.axml is None:
+                return {}
+            self.permissions = Permissions(self)
+        return self.permissions.declared_permissions
+
     def get_android_resources(self) -> ARSCParser|None:
         """
         Return the [ARSCParser][androguard.core.axml.ARSCParser] object which corresponds to the `resources.arsc` file

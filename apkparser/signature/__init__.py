@@ -57,8 +57,7 @@ class APKSignature:
         self._v2_blocks = {}
         self._v2_signing_data = None
         self._v3_signing_data = None
-
-        self.parse_v2_v3_signature()
+        self._v2_v3_parsed = False
 
 
     def is_signed(self) -> bool:
@@ -91,6 +90,7 @@ class APKSignature:
 
         :returns: `True` of a v2 / APK signature was found, else `False`
         """
+        self._ensure_v2_v3_signature()
         return self._is_signed_v2
 
     def is_signed_v3(self) -> bool:
@@ -102,7 +102,14 @@ class APKSignature:
 
         :returns: `True` of a v3 / APK signature was found, else `False`
         """
+        self._ensure_v2_v3_signature()
         return self._is_signed_v3
+
+    def _ensure_v2_v3_signature(self) -> None:
+        if self._v2_v3_parsed:
+            return
+        self.parse_v2_v3_signature()
+        self._v2_v3_parsed = True
     
     def parse_v2_v3_signature(self) -> None:
         # Need to find an v2 Block in the APK.
@@ -713,8 +720,9 @@ class APKSignature:
                         )
                     signed_attrs_dict[attr['type'].dotted] = attr['values']
 
-                # Check content type attribute (for Android N and newer)
-                if max_sdk_version is None or int(max_sdk_version) >= 24:
+                # Check content type attribute (for Android N and newer).
+                # max_sdk_version < 0 (default -1) means no upper bound → apply N+ checks.
+                if max_sdk_version is None or int(max_sdk_version) < 0 or int(max_sdk_version) >= 24:
                     content_type_oid = (
                         '1.2.840.113549.1.9.3'  # OID for contentType
                     )
