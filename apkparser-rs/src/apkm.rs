@@ -265,10 +265,16 @@ fn zip_has_root_manifest<'a>(mut names: impl Iterator<Item = &'a str>) -> bool {
 }
 
 fn safe_filename(name: &str) -> String {
-    name.rsplit('/')
+    let base = name
+        .rsplit(['/', '\\'])
         .next()
         .unwrap_or(name)
-        .replace(['\\', '\0'], "_")
+        .replace(['\\', '/', '\0'], "_");
+    if base.is_empty() || base == "." || base == ".." {
+        "_entry".into()
+    } else {
+        base
+    }
 }
 
 #[cfg(test)]
