@@ -6,10 +6,12 @@ mod v1;
 mod v2;
 mod v3;
 
+pub use apk_sig_block::{
+    parse_apk_sig_block, parse_apk_sig_block_at, APK_SIG_KEY_V2_SIGNATURE, APK_SIG_KEY_V3_SIGNATURE,
+};
 pub use v2::{parse_v2_signing_block, ApkV2SignedData, ApkV2Signer};
 pub use v3::{parse_v3_signing_block, ApkV3SignedData, ApkV3Signer};
 
-use apk_sig_block::{parse_apk_sig_block, APK_SIG_KEY_V2_SIGNATURE, APK_SIG_KEY_V3_SIGNATURE};
 use crate::zip::ZipArchive;
 use std::collections::HashMap;
 

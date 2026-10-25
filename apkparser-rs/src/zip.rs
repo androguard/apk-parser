@@ -8,6 +8,7 @@
 
 use std::collections::HashMap;
 use std::io::{Cursor, Read};
+use std::ops::Range;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use flate2::read::DeflateDecoder;
@@ -31,6 +32,62 @@ pub struct CentralEntry {
     pub uncompressed_size: u64,
     pub local_header_offset: u64,
     pub filename: String,
+    /// CRC-32 from the central directory.
+    pub crc32: u32,
+    /// General-purpose bit flags.
+    pub flags: u16,
+    /// Version made by.
+    pub made_by: u16,
+    /// External file attributes.
+    pub external_attrs: u32,
+    /// Byte range of the raw filename in the APK buffer (central directory).
+    pub name_raw: Range<usize>,
+    /// Index of this entry in the central directory (0-based order of appearance).
+    pub cd_index: usize,
+}
+
+/// Caps for [`ZipIndex::read_into`].
+#[derive(Debug, Clone, Copy)]
+pub struct ReadLimits {
+    /// Maximum number of uncompressed bytes to write into `out`.
+    pub max_out: usize,
+}
+
+/// Which decompression path produced the output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MethodUsed {
+    /// Declared/resolved method was stored (0).
+    Stored,
+    /// Declared/resolved method was deflate (8) and inflate succeeded.
+    Deflate,
+    /// Fell back to treating payload as stored (magic prefer, inflate failure, etc.).
+    StoredFallback,
+    /// Fell back to deflate despite a non-8 declared method.
+    DeflateFallback,
+}
+
+/// Differences between the local file header and the central-directory entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct LocalMismatch {
+    pub method: bool,
+    pub sizes: bool,
+    pub name: bool,
+    pub crc: bool,
+}
+
+impl LocalMismatch {
+    pub fn any(self) -> bool {
+        self.method || self.sizes || self.name || self.crc
+    }
+}
+
+/// Result metadata from [`ZipIndex::read_into`].
+#[derive(Debug, Clone)]
+pub struct ReadOutcome {
+    pub method_used: MethodUsed,
+    pub crc_ok: bool,
+    pub truncated: bool,
+    pub local_mismatch: Option<LocalMismatch>,
 }
 
 /// Central-directory metadata only. No entry bytes are inflated until [`ZipIndex::read`].
@@ -87,6 +144,17 @@ impl<'a> ZipIndex<'a> {
         self.by_name.get(name).map(|&i| &self.entries[i])
     }
 
+    /// Duplicate entry names with all central-directory indices (Master Key / CVE-2013-4787).
+    ///
+    /// `entries` remains complete; [`Self::entry`] / `by_name` stay last-wins for lookup.
+    pub fn duplicates(&self) -> impl Iterator<Item = (&str, Vec<usize>)> + '_ {
+        let mut groups: HashMap<&str, Vec<usize>> = HashMap::new();
+        for (i, e) in self.entries.iter().enumerate() {
+            groups.entry(e.filename.as_str()).or_default().push(i);
+        }
+        groups.into_iter().filter(|(_, idxs)| idxs.len() > 1)
+    }
+
     /// Extract one entry using the existing lenient/tampered-APK logic.
     pub fn read(&self, name: &str) -> Result<Vec<u8>> {
         let e = self
@@ -96,7 +164,21 @@ impl<'a> ZipIndex<'a> {
     }
 
     pub fn read_entry(&self, e: &CentralEntry) -> Result<Vec<u8>> {
-        extract_entry(self.data, e)
+        let mut out = Vec::new();
+        let _ = self.read_into(e, &mut out, ReadLimits { max_out: usize::MAX })?;
+        Ok(out)
+    }
+
+    /// Inflate (or store) an entry into `out`, capped by `limits.max_out`.
+    ///
+    /// Clears `out` before writing. Verifies CRC-32 against the central-directory value.
+    pub fn read_into(
+        &self,
+        e: &CentralEntry,
+        out: &mut Vec<u8>,
+        limits: ReadLimits,
+    ) -> Result<ReadOutcome> {
+        read_into_impl(self.data, e, out, limits)
     }
 
     pub fn contains(&self, name: &str) -> bool {
@@ -163,7 +245,9 @@ impl ZipArchive {
         let e = self
             .entry(name)
             .ok_or_else(|| Error::FileNotPresent(name.to_string()))?;
-        extract_entry(&self.data, e)
+        let mut out = Vec::new();
+        let _ = read_into_impl(&self.data, e, &mut out, ReadLimits { max_out: usize::MAX })?;
+        Ok(out)
     }
 
     pub fn read_to_vec(&self, name: &str) -> Result<Vec<u8>> {
@@ -289,13 +373,13 @@ fn parse_central_directory(apk: &[u8], offset_central: usize) -> Result<Vec<Cent
             break;
         }
         let mut c = Cursor::new(&apk[offset + 4..]);
-        let _version_made = c.read_u16::<LittleEndian>()?;
+        let made_by = c.read_u16::<LittleEndian>()?;
         let _version_needed = c.read_u16::<LittleEndian>()?;
-        let _flags = c.read_u16::<LittleEndian>()?;
+        let flags = c.read_u16::<LittleEndian>()?;
         let compression_method = c.read_u16::<LittleEndian>()?;
         let _mtime = c.read_u16::<LittleEndian>()?;
         let _mdate = c.read_u16::<LittleEndian>()?;
-        let _crc = c.read_u32::<LittleEndian>()?;
+        let crc32 = c.read_u32::<LittleEndian>()?;
         let compressed_size32 = c.read_u32::<LittleEndian>()?;
         let uncompressed_size32 = c.read_u32::<LittleEndian>()?;
         let file_name_length = c.read_u16::<LittleEndian>()? as usize;
@@ -303,7 +387,7 @@ fn parse_central_directory(apk: &[u8], offset_central: usize) -> Result<Vec<Cent
         let file_comment_length = c.read_u16::<LittleEndian>()? as usize;
         let _disk = c.read_u16::<LittleEndian>()?;
         let _internal_attr = c.read_u16::<LittleEndian>()?;
-        let _external_attr = c.read_u32::<LittleEndian>()?;
+        let external_attrs = c.read_u32::<LittleEndian>()?;
         let local_header_offset32 = c.read_u32::<LittleEndian>()?;
 
         let name_start = offset + 46;
@@ -311,6 +395,7 @@ fn parse_central_directory(apk: &[u8], offset_central: usize) -> Result<Vec<Cent
         if name_end > apk.len() {
             break;
         }
+        let name_raw = name_start..name_end;
         let filename = String::from_utf8_lossy(&apk[name_start..name_end]).into_owned();
         let extra_end = name_end + extra_field_length;
         let next = extra_end + file_comment_length;
@@ -324,19 +409,124 @@ fn parse_central_directory(apk: &[u8], offset_central: usize) -> Result<Vec<Cent
             uncompressed_size32 as u64,
             local_header_offset32 as u64,
         );
+        let cd_index = entries.len();
         entries.push(CentralEntry {
             compression_method,
             compressed_size,
             uncompressed_size,
             local_header_offset,
             filename,
+            crc32,
+            flags,
+            made_by,
+            external_attrs,
+            name_raw,
+            cd_index,
         });
         offset = next;
     }
     Ok(entries)
 }
 
-fn extract_entry(apk: &[u8], entry: &CentralEntry) -> Result<Vec<u8>> {
+fn looks_like_android_payload(buf: &[u8]) -> bool {
+    buf.starts_with(&[0x03, 0x00, 0x08, 0x00])
+        || buf.starts_with(&[0x00, 0x00, 0x08, 0x00])
+        || buf.starts_with(b"dex\n")
+        || buf.starts_with(b"dey\n")
+}
+
+fn copy_capped(src: &[u8], out: &mut Vec<u8>, max_out: usize) -> bool {
+    let take = src.len().min(max_out);
+    out.extend_from_slice(&src[..take]);
+    take < src.len()
+}
+
+fn inflate_capped(compressed: &[u8], out: &mut Vec<u8>, max_out: usize) -> Result<bool> {
+    let mut decoder = DeflateDecoder::new(compressed);
+    let mut buf = [0u8; 8192];
+    let mut truncated = false;
+    loop {
+        if out.len() >= max_out {
+            truncated = true;
+            out.truncate(max_out);
+            break;
+        }
+        let room = (max_out - out.len()).min(buf.len());
+        let n = match decoder.read(&mut buf[..room]) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => return Err(Error::Io(e)),
+        };
+        out.extend_from_slice(&buf[..n]);
+    }
+    Ok(truncated)
+}
+
+fn try_inflate_capped(compressed: &[u8], out: &mut Vec<u8>, max_out: usize) -> Option<bool> {
+    out.clear();
+    match inflate_capped(compressed, out, max_out) {
+        Ok(truncated) if !out.is_empty() || compressed.is_empty() => Some(truncated),
+        _ => {
+            out.clear();
+            None
+        }
+    }
+}
+
+fn inflate_or_stored_into(
+    compressed: &[u8],
+    stored_fallback: &[u8],
+    uncompressed_hint: usize,
+    out: &mut Vec<u8>,
+    max_out: usize,
+    prefer_deflate_fallback: bool,
+) -> Result<(MethodUsed, bool)> {
+    out.clear();
+    if compressed.is_empty() {
+        let truncated = copy_capped(stored_fallback, out, max_out);
+        return Ok((MethodUsed::StoredFallback, truncated));
+    }
+
+    if looks_like_android_payload(stored_fallback) {
+        if stored_fallback.len() >= uncompressed_hint && uncompressed_hint > 0 {
+            let slice = &stored_fallback[..uncompressed_hint];
+            let truncated = copy_capped(slice, out, max_out);
+            return Ok((MethodUsed::StoredFallback, truncated));
+        }
+        if looks_like_android_payload(compressed) {
+            let src = if stored_fallback.len() > compressed.len() {
+                stored_fallback
+            } else {
+                compressed
+            };
+            let truncated = copy_capped(src, out, max_out);
+            return Ok((MethodUsed::StoredFallback, truncated));
+        }
+        let truncated = copy_capped(stored_fallback, out, max_out);
+        return Ok((MethodUsed::StoredFallback, truncated));
+    }
+
+    if let Some(truncated) = try_inflate_capped(compressed, out, max_out) {
+        let method = if prefer_deflate_fallback {
+            MethodUsed::DeflateFallback
+        } else {
+            MethodUsed::Deflate
+        };
+        return Ok((method, truncated));
+    }
+
+    out.clear();
+    let truncated = copy_capped(stored_fallback, out, max_out);
+    Ok((MethodUsed::StoredFallback, truncated))
+}
+
+fn read_into_impl(
+    apk: &[u8],
+    entry: &CentralEntry,
+    out: &mut Vec<u8>,
+    limits: ReadLimits,
+) -> Result<ReadOutcome> {
+    out.clear();
     let off = entry.local_header_offset as usize;
     if off + 30 > apk.len() || &apk[off..off + 4] != PK_LOCAL {
         return Err(Error::Parse(format!(
@@ -346,15 +536,18 @@ fn extract_entry(apk: &[u8], entry: &CentralEntry) -> Result<Vec<u8>> {
     }
     let mut c = Cursor::new(&apk[off + 4..]);
     let _version_needed = c.read_u16::<LittleEndian>()?;
-    let _flags = c.read_u16::<LittleEndian>()?;
-    let compression_method = c.read_u16::<LittleEndian>()?;
+    let _local_flags = c.read_u16::<LittleEndian>()?;
+    let local_method = c.read_u16::<LittleEndian>()?;
     let _mtime = c.read_u16::<LittleEndian>()?;
     let _mdate = c.read_u16::<LittleEndian>()?;
-    let _crc = c.read_u32::<LittleEndian>()?;
+    let local_crc = c.read_u32::<LittleEndian>()?;
     let mut compressed_size = c.read_u32::<LittleEndian>()? as u64;
     let mut uncompressed_size = c.read_u32::<LittleEndian>()? as u64;
     let file_name_length = c.read_u16::<LittleEndian>()? as usize;
     let extra_field_length = c.read_u16::<LittleEndian>()? as usize;
+
+    let local_comp_raw = compressed_size;
+    let local_uncomp_raw = uncompressed_size;
 
     // Prefer central directory sizes when local sizes are zero (data descriptor / evasion).
     if compressed_size == 0 || uncompressed_size == 0 {
@@ -365,7 +558,29 @@ fn extract_entry(apk: &[u8], entry: &CentralEntry) -> Result<Vec<u8>> {
         uncompressed_size = entry.uncompressed_size;
     }
 
-    let data_start = off + 30 + file_name_length + extra_field_length;
+    let name_start = off + 30;
+    let name_end = name_start + file_name_length;
+    if name_end > apk.len() {
+        return Err(Error::Parse(format!(
+            "truncated local entry for {}",
+            entry.filename
+        )));
+    }
+    let local_name = &apk[name_start..name_end];
+    let central_name = if entry.name_raw.end <= apk.len() {
+        &apk[entry.name_raw.clone()]
+    } else {
+        entry.filename.as_bytes()
+    };
+
+    let mismatch = LocalMismatch {
+        method: local_method != entry.compression_method,
+        sizes: local_comp_raw != entry.compressed_size || local_uncomp_raw != entry.uncompressed_size,
+        name: local_name != central_name,
+        crc: local_crc != entry.crc32,
+    };
+
+    let data_start = name_end + extra_field_length;
     if data_start > apk.len() {
         return Err(Error::Parse(format!(
             "truncated local entry for {}",
@@ -373,11 +588,11 @@ fn extract_entry(apk: &[u8], entry: &CentralEntry) -> Result<Vec<u8>> {
         )));
     }
 
-    let method = match compression_method {
-        0 | 8 => compression_method,
+    let method = match local_method {
+        0 | 8 => local_method,
         _ => match entry.compression_method {
             0 | 8 => entry.compression_method,
-            _ => compression_method,
+            _ => local_method,
         },
     };
 
@@ -385,49 +600,47 @@ fn extract_entry(apk: &[u8], entry: &CentralEntry) -> Result<Vec<u8>> {
     let end_u = (data_start + uncompressed_size as usize).min(apk.len());
     let compressed = &apk[data_start..end_c];
     let stored_span = &apk[data_start..end_u.max(end_c)];
+    let max_out = limits.max_out;
+    let uncompressed_hint = uncompressed_size as usize;
 
-    match method {
-        0 => Ok(stored_span.to_vec()),
-        8 => inflate_or_stored(compressed, stored_span, uncompressed_size as usize),
-        _ if compressed_size == uncompressed_size => Ok(stored_span.to_vec()),
-        _ => inflate_or_stored(compressed, stored_span, uncompressed_size as usize),
-    }
-}
+    let (method_used, truncated) = match method {
+        0 => {
+            let truncated = copy_capped(stored_span, out, max_out);
+            (MethodUsed::Stored, truncated)
+        }
+        8 => inflate_or_stored_into(
+            compressed,
+            stored_span,
+            uncompressed_hint,
+            out,
+            max_out,
+            false,
+        )?,
+        _ if compressed_size == uncompressed_size => {
+            let truncated = copy_capped(stored_span, out, max_out);
+            (MethodUsed::StoredFallback, truncated)
+        }
+        _ => inflate_or_stored_into(
+            compressed,
+            stored_span,
+            uncompressed_hint,
+            out,
+            max_out,
+            true,
+        )?,
+    };
 
-fn inflate_or_stored(
-    compressed: &[u8],
-    stored_fallback: &[u8],
-    uncompressed_hint: usize,
-) -> Result<Vec<u8>> {
-    if compressed.is_empty() {
-        return Ok(stored_fallback.to_vec());
-    }
-    if stored_fallback.starts_with(&[0x03, 0x00, 0x08, 0x00])
-        || stored_fallback.starts_with(&[0x00, 0x00, 0x08, 0x00])
-        || stored_fallback.starts_with(b"dex\n")
-        || stored_fallback.starts_with(b"dey\n")
-    {
-        if stored_fallback.len() >= uncompressed_hint && uncompressed_hint > 0 {
-            return Ok(stored_fallback[..uncompressed_hint].to_vec());
-        }
-        if compressed.starts_with(&[0x03, 0x00, 0x08, 0x00])
-            || compressed.starts_with(&[0x00, 0x00, 0x08, 0x00])
-            || compressed.starts_with(b"dex\n")
-            || compressed.starts_with(b"dey\n")
-        {
-            if stored_fallback.len() > compressed.len() {
-                return Ok(stored_fallback.to_vec());
-            }
-            return Ok(compressed.to_vec());
-        }
-        return Ok(stored_fallback.to_vec());
-    }
-    let mut decoder = DeflateDecoder::new(compressed);
-    let mut out = Vec::with_capacity(uncompressed_hint);
-    match decoder.read_to_end(&mut out) {
-        Ok(_) if !out.is_empty() => Ok(out),
-        _ => Ok(stored_fallback.to_vec()),
-    }
+    let crc_ok = !truncated && crc32fast::hash(out) == entry.crc32;
+    Ok(ReadOutcome {
+        method_used,
+        crc_ok,
+        truncated,
+        local_mismatch: if mismatch.any() {
+            Some(mismatch)
+        } else {
+            None
+        },
+    })
 }
 
 #[cfg(test)]
@@ -435,13 +648,14 @@ mod tests {
     use super::*;
 
     fn minimal_stored_zip() -> Vec<u8> {
+        let crc = crc32fast::hash(b"hi");
         let mut z = Vec::new();
         z.extend_from_slice(b"PK\x03\x04");
         z.extend_from_slice(&[20, 0]);
         z.extend_from_slice(&[0, 0]);
         z.extend_from_slice(&[0, 0]);
         z.extend_from_slice(&[0, 0, 0, 0]);
-        z.extend_from_slice(&[0x49, 0x86, 0x0b, 0x34]);
+        z.extend_from_slice(&crc.to_le_bytes());
         z.extend_from_slice(&[2, 0, 0, 0]);
         z.extend_from_slice(&[2, 0, 0, 0]);
         z.extend_from_slice(&[5, 0]);
@@ -454,7 +668,7 @@ mod tests {
         z.extend_from_slice(&[0, 0]);
         z.extend_from_slice(&[0, 0]);
         z.extend_from_slice(&[0, 0, 0, 0]);
-        z.extend_from_slice(&[0x49, 0x86, 0x0b, 0x34]);
+        z.extend_from_slice(&crc.to_le_bytes());
         z.extend_from_slice(&[2, 0, 0, 0, 2, 0, 0, 0]);
         z.extend_from_slice(&[5, 0, 0, 0, 0, 0]);
         z.extend_from_slice(&[0, 0, 0, 0]);
@@ -465,6 +679,49 @@ mod tests {
         z.extend_from_slice(b"PK\x05\x06");
         z.extend_from_slice(&[0, 0, 0, 0]);
         z.extend_from_slice(&[1, 0, 1, 0]);
+        z.extend_from_slice(&(cd_size as u32).to_le_bytes());
+        z.extend_from_slice(&(cd_off as u32).to_le_bytes());
+        z.extend_from_slice(&[0, 0]);
+        z
+    }
+
+    /// Two central entries with the same name (Master Key style).
+    fn duplicate_name_zip() -> Vec<u8> {
+        let mut z = Vec::new();
+        // local 0: a.txt = "aa"
+        let local0 = z.len();
+        z.extend_from_slice(b"PK\x03\x04");
+        z.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let crc_aa = crc32fast::hash(b"aa");
+        z.extend_from_slice(&crc_aa.to_le_bytes());
+        z.extend_from_slice(&[2, 0, 0, 0, 2, 0, 0, 0]);
+        z.extend_from_slice(&[5, 0, 0, 0]);
+        z.extend_from_slice(b"a.txt");
+        z.extend_from_slice(b"aa");
+        // local 1: a.txt = "bb"
+        let local1 = z.len();
+        z.extend_from_slice(b"PK\x03\x04");
+        z.extend_from_slice(&[20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let crc_bb = crc32fast::hash(b"bb");
+        z.extend_from_slice(&crc_bb.to_le_bytes());
+        z.extend_from_slice(&[2, 0, 0, 0, 2, 0, 0, 0]);
+        z.extend_from_slice(&[5, 0, 0, 0]);
+        z.extend_from_slice(b"a.txt");
+        z.extend_from_slice(b"bb");
+        let cd_off = z.len();
+        for (local, crc) in [(local0, crc_aa), (local1, crc_bb)] {
+            z.extend_from_slice(b"PK\x01\x02");
+            z.extend_from_slice(&[20, 0, 20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+            z.extend_from_slice(&crc.to_le_bytes());
+            z.extend_from_slice(&[2, 0, 0, 0, 2, 0, 0, 0]);
+            z.extend_from_slice(&[5, 0, 0, 0, 0, 0]);
+            z.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0, 0]);
+            z.extend_from_slice(&(local as u32).to_le_bytes());
+            z.extend_from_slice(b"a.txt");
+        }
+        let cd_size = z.len() - cd_off;
+        z.extend_from_slice(b"PK\x05\x06");
+        z.extend_from_slice(&[0, 0, 0, 0, 2, 0, 2, 0]);
         z.extend_from_slice(&(cd_size as u32).to_le_bytes());
         z.extend_from_slice(&(cd_off as u32).to_le_bytes());
         z.extend_from_slice(&[0, 0]);
@@ -496,6 +753,75 @@ mod tests {
         let names: Vec<_> = index.namelist().map(|s| s.to_string()).collect();
         assert_eq!(names, eager.namelist());
         assert_eq!(index.read("a.txt").unwrap(), eager.read("a.txt").unwrap());
+    }
+
+    #[test]
+    fn central_entry_exposes_cd_metadata() {
+        let z = minimal_stored_zip();
+        let index = ZipIndex::parse(&z).unwrap();
+        let e = index.entry("a.txt").unwrap();
+        assert_eq!(e.crc32, crc32fast::hash(b"hi"));
+        assert_eq!(e.flags, 0);
+        assert_eq!(e.made_by, 20);
+        assert_eq!(e.external_attrs, 0);
+        assert_eq!(e.cd_index, 0);
+        assert_eq!(&z[e.name_raw.clone()], b"a.txt");
+    }
+
+    #[test]
+    fn duplicates_reports_all_indices() {
+        let z = duplicate_name_zip();
+        let index = ZipIndex::parse(&z).unwrap();
+        assert_eq!(index.entries().len(), 2);
+        // last-wins lookup
+        assert_eq!(index.read("a.txt").unwrap(), b"bb");
+        let dups: Vec<_> = index.duplicates().collect();
+        assert_eq!(dups.len(), 1);
+        assert_eq!(dups[0].0, "a.txt");
+        assert_eq!(dups[0].1, vec![0, 1]);
+    }
+
+    #[test]
+    fn read_into_respects_max_out_and_crc() {
+        let z = minimal_stored_zip();
+        let index = ZipIndex::parse(&z).unwrap();
+        let e = index.entry("a.txt").unwrap();
+        let mut out = Vec::new();
+        let outcome = index
+            .read_into(e, &mut out, ReadLimits { max_out: 1 })
+            .unwrap();
+        assert_eq!(out, b"h");
+        assert!(outcome.truncated);
+        assert!(!outcome.crc_ok);
+        assert_eq!(outcome.method_used, MethodUsed::Stored);
+
+        out.clear();
+        let outcome = index
+            .read_into(e, &mut out, ReadLimits { max_out: 64 })
+            .unwrap();
+        assert_eq!(out, b"hi");
+        assert!(!outcome.truncated);
+        assert!(outcome.crc_ok);
+        assert!(outcome.local_mismatch.is_none());
+    }
+
+    #[test]
+    fn read_into_reports_local_mismatch() {
+        let mut z = minimal_stored_zip();
+        // Flip local compression method (offset 8 in local header) to deflate (8).
+        z[8] = 8;
+        z[9] = 0;
+        let index = ZipIndex::parse(&z).unwrap();
+        let e = index.entry("a.txt").unwrap();
+        let mut out = Vec::new();
+        let outcome = index
+            .read_into(e, &mut out, ReadLimits { max_out: 64 })
+            .unwrap();
+        let mm = outcome.local_mismatch.expect("expected mismatch");
+        assert!(mm.method);
+        assert!(!mm.sizes);
+        assert!(!mm.name);
+        assert!(!mm.crc);
     }
 
     #[test]

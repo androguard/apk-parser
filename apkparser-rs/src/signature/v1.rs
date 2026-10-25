@@ -1,11 +1,6 @@
 //! APK V1 / JAR signature: META-INF/*.RSA with .SF, PKCS7/CMS parsing.
 
-use der::Decode;
-use der::Encode;
-use der::SliceReader;
-use pkcs7::ContentInfo;
 use regex::Regex;
-use x509_parser::prelude::FromDer;
 
 use crate::error::Result;
 
@@ -24,7 +19,14 @@ pub fn get_signature_names(zip_names: &[String]) -> Vec<String> {
     signatures
 }
 
+#[cfg(feature = "sign")]
 pub fn extract_first_certificate_from_pkcs7(pkcs7_bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    use der::Decode;
+    use der::Encode;
+    use der::SliceReader;
+    use pkcs7::ContentInfo;
+    use x509_parser::prelude::FromDer;
+
     let mut reader = SliceReader::new(pkcs7_bytes)
         .map_err(|e| crate::error::Error::Parse(format!("PKCS7 slice reader: {}", e)))?;
     let content_info = ContentInfo::decode(&mut reader)
@@ -89,6 +91,13 @@ pub fn extract_first_certificate_from_pkcs7(pkcs7_bytes: &[u8]) -> Result<Option
         }
     }
     Ok(None)
+}
+
+#[cfg(not(feature = "sign"))]
+pub fn extract_first_certificate_from_pkcs7(_pkcs7_bytes: &[u8]) -> Result<Option<Vec<u8>>> {
+    Err(crate::error::Error::Unsupported(
+        "v1 PKCS7 certificate extraction requires the `sign` feature".into(),
+    ))
 }
 
 pub fn get_certificate_der_from_pkcs7(

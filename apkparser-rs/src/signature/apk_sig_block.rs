@@ -1,6 +1,7 @@
 //! APK Signature Block parsing (finding v2/v3 block in ZIP).
 
 use byteorder::{LittleEndian, ReadBytesExt};
+use memchr::memmem;
 use std::collections::HashMap;
 use std::io::Cursor;
 
@@ -9,47 +10,63 @@ use crate::error::{BrokenAPKError, Result};
 const PK_END_OF_CENTRAL_DIR: &[u8; 4] = b"\x50\x4b\x05\x06";
 const PK_CENTRAL_DIR: &[u8; 4] = b"\x50\x4b\x01\x02";
 const APK_SIG_MAGIC: &[u8; 16] = b"APK Sig Block 42";
+/// Max ZIP comment length + EOCD fixed size — EOCD must lie in this suffix (same as zip.rs).
+const EOCD_SEARCH_WINDOW: usize = 65_535 + 22;
+
 pub const APK_SIG_KEY_V2_SIGNATURE: u32 = 0x7109871A;
 pub const APK_SIG_KEY_V3_SIGNATURE: u32 = 0xF05368C0;
 
+/// Locate EOCD in a trailing window (like `zip.rs`); return `(cd_size, cd_offset)`.
 fn find_eocd(data: &[u8]) -> Result<(u32, u32)> {
     let len = data.len();
     if len < 22 {
         return Err(BrokenAPKError("File too short for EOCD".to_string()).into());
     }
-    // Search from the end: the real EOCD is the one whose record (22 bytes + comment) extends to EOF.
-    // The signature can also appear inside the APK Signing Block, so we must verify comment length.
-    let mut pos = len.saturating_sub(22);
-    while pos > 0 {
-        if data[pos..].starts_with(PK_END_OF_CENTRAL_DIR) {
-            if pos + 22 > len {
-                pos = pos.saturating_sub(1);
-                continue;
-            }
-            let comment_len = {
-                let mut c = Cursor::new(&data[pos + 20..]);
-                c.read_u16::<LittleEndian>()
-                    .map_err(|e| crate::error::Error::Io(e))?
-            } as usize;
-            if pos + 22 + comment_len == len {
-                let mut c = Cursor::new(&data[pos + 4..]);
-                let _ = c.read_u16::<LittleEndian>()?;
-                let _ = c.read_u16::<LittleEndian>()?;
-                let _ = c.read_u16::<LittleEndian>()?;
-                let _ = c.read_u16::<LittleEndian>()?;
-                let size_central = c.read_u32::<LittleEndian>()?;
-                let offset_central = c.read_u32::<LittleEndian>()?;
-                return Ok((size_central, offset_central));
-            }
+    let window_start = len.saturating_sub(EOCD_SEARCH_WINDOW);
+    let window = &data[window_start..];
+
+    // 1) Strict: EOCD whose 22 + comment_len reaches exactly EOF.
+    for rel in memmem::rfind_iter(window, PK_END_OF_CENTRAL_DIR) {
+        let pos = window_start + rel;
+        if pos + 22 > len {
+            continue;
         }
-        pos = pos.saturating_sub(1);
+        let comment_len = u16::from_le_bytes([data[pos + 20], data[pos + 21]]) as usize;
+        if pos + 22 + comment_len == len {
+            return eocd_cd_fields(data, pos);
+        }
     }
+
+    // 2) Lenient: last EOCD signature in the window.
+    if let Some(rel) = memmem::rfind(window, PK_END_OF_CENTRAL_DIR) {
+        let pos = window_start + rel;
+        if pos + 22 <= len {
+            return eocd_cd_fields(data, pos);
+        }
+    }
+
     Err(BrokenAPKError("EOCD signature not found".to_string()).into())
 }
 
-pub fn parse_apk_sig_block(apk: &[u8]) -> Result<(bool, bool, HashMap<u32, Vec<u8>>)> {
-    let (_size_central, offset_central) = find_eocd(apk)?;
-    let offset_central = offset_central as usize;
+fn eocd_cd_fields(data: &[u8], eocd_pos: usize) -> Result<(u32, u32)> {
+    let mut c = Cursor::new(&data[eocd_pos + 4..]);
+    let _ = c.read_u16::<LittleEndian>()?;
+    let _ = c.read_u16::<LittleEndian>()?;
+    let _ = c.read_u16::<LittleEndian>()?;
+    let _ = c.read_u16::<LittleEndian>()?;
+    let size_central = c.read_u32::<LittleEndian>()?;
+    let offset_central = c.read_u32::<LittleEndian>()?;
+    Ok((size_central, offset_central))
+}
+
+/// Parse the APK Signing Block immediately before the central directory at `cd_offset`.
+///
+/// Prefer this when you already have [`crate::zip::ZipIndex::central_directory_range`].
+pub fn parse_apk_sig_block_at(
+    apk: &[u8],
+    cd_offset: usize,
+) -> Result<(bool, bool, HashMap<u32, Vec<u8>>)> {
+    let offset_central = cd_offset;
     if offset_central + 4 > apk.len() {
         return Ok((false, false, HashMap::new()));
     }
@@ -149,4 +166,10 @@ pub fn parse_apk_sig_block(apk: &[u8]) -> Result<(bool, bool, HashMap<u32, Vec<u
     let is_signed_v2 = blocks.contains_key(&APK_SIG_KEY_V2_SIGNATURE);
     let is_signed_v3 = blocks.contains_key(&APK_SIG_KEY_V3_SIGNATURE);
     Ok((is_signed_v2, is_signed_v3, blocks))
+}
+
+/// Locate the central directory via windowed EOCD search, then parse the signing block.
+pub fn parse_apk_sig_block(apk: &[u8]) -> Result<(bool, bool, HashMap<u32, Vec<u8>>)> {
+    let (_size_central, offset_central) = find_eocd(apk)?;
+    parse_apk_sig_block_at(apk, offset_central as usize)
 }

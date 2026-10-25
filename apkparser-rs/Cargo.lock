@@ -74,6 +74,7 @@ dependencies = [
  "axmldecoder",
  "byteorder",
  "clap",
+ "crc32fast",
  "der",
  "ecdsa",
  "flate2",
