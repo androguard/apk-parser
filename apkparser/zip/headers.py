@@ -59,7 +59,10 @@ class EndOfCentralDirectoryRecord:
         chunk_size = 1024
         offset = 0
         signature_offset = -1
-        file_size = apk_file.seek(0, 2)
+        # mmap.seek() returns None, unlike file objects and BytesIO, so the
+        # size has to be read with tell() - APK(Path) hands us a memory map.
+        apk_file.seek(0, 2)
+        file_size = apk_file.tell()
         while offset < file_size:
             position = max(0, file_size - offset - chunk_size)
             apk_file.seek(position)
